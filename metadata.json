@@ -1,0 +1,7 @@
+{
+  "name": "SanHuiZhiLi",
+  "description": "基于 DeepSeek 推理与 RAG 技术的企业数字治理合规管理系统，解决三会运作痛点。",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}

@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+@theme {
+  --color-mck-navy: #051C2C;
+  --color-mck-blue: #005F70;
+  --color-mck-red: #D93954;
+  --color-mck-bg: #F4F6F8;
+  --color-mck-border: #E0E4E8;
+  
+  --font-sans: "Helvetica Neue", "Arial", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-serif: "Georgia", "SimSun", serif;
+}
+
+@layer base {
+  body {
+    @apply bg-mck-bg text-mck-navy font-sans antialiased;
+  }
+  
+  h1, h2, h3, h4 {
+    @apply font-serif font-bold;
+  }
+}
+
+.mck-card {
+  @apply bg-white border border-mck-border p-6 transition-all;
+}
+
+.mck-card-accent-blue {
+  @apply border-t-4 border-t-mck-blue;
+}
+
+.mck-card-accent-red {
+  @apply border-t-4 border-t-mck-red;
+}
+
+.sidebar-item {
+  @apply flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors hover:bg-white/10;
+}
+
+.sidebar-item.active {
+  @apply bg-white/10 border-l-4 border-l-mck-blue;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-mck-border rounded-full;
+}
