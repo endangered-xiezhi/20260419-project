@@ -1,4 +1,4 @@
-export type MeetingType = "股东会" | "董事会" | "监事会";
+export type MeetingType = "股东会" | "董事会" | "监事会" | "临时股东会";
 
 export interface Meeting {
   id: string;
@@ -8,6 +8,8 @@ export interface Meeting {
   status: "筹备中" | "进行中" | "已结束";
   complianceScore: number;
   notifiedDays: number;
+  participants?: string[];
+  threshold?: string;
 }
 
 export interface ASRSegment {
@@ -63,11 +65,16 @@ export interface KnowledgeItem {
 export interface Personnel {
   id: string;
   name: string;
-  role: "董事长" | "董事" | "独立董事" | "监事" | "董秘" | "高管";
-  organization: "董事会" | "监事会" | "管理层";
-  termStart: string;
-  termEnd: string;
-  isIndependent: boolean;
-  conflictOfInterest: string[];
-  status: "在职" | "离职";
+  role: "董事长" | "董事" | "独立董事" | "监事" | "董事会秘书" | "总经理" | "副总经理" | "财务负责人" | "无" | "法人股东" | "自然人股东";
+  organization: "董事会" | "监事会" | "管理层" | "无" | "股东";
+  isShareholder?: boolean; // 是否股东
+  shareholding?: number; // 股权占比，百分比
+  termStart?: string;
+  termEnd?: string;
+  isIndependent?: boolean;
+  conflictOfInterest?: string[];
+  status?: "在职" | "离职" | "正常";
+  phone?: string;
+  email?: string;
+  sortOrder?: number; // 固定排序，数值越小越靠前
 }

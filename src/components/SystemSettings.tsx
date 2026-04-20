@@ -1,6 +1,11 @@
 import React, { useState, useEffect } from "react";
-import { Settings, Shield, Cpu, Mic, Database, Save, RefreshCw, CheckCircle, AlertCircle } from "lucide-react";
+import { Settings, Shield, Cpu, Mic, Database, Save, RefreshCw, CheckCircle, AlertCircle, User, Bell, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+interface SystemSettingsProps {
+  defaultSubTab?: "account" | "system";
+  onSubTabChange?: (tab: "account" | "system") => void;
+}
 
 interface ApiSettings {
   baiduApiKey: string;
@@ -20,7 +25,251 @@ const defaultSettings: ApiSettings = {
   autoSync: true,
 };
 
-export const SystemSettings: React.FC = () => {
+export const SystemSettings: React.FC<SystemSettingsProps> = ({ 
+  defaultSubTab = "account",
+  onSubTabChange 
+}) => {
+  const [subTab, setSubTab] = useState<"account" | "system">(defaultSubTab);
+  
+  // 同步外部状态
+  useEffect(() => {
+    if (defaultSubTab !== subTab) {
+      setSubTab(defaultSubTab);
+    }
+  }, [defaultSubTab]);
+
+  const handleSubTabChange = (tab: "account" | "system") => {
+    setSubTab(tab);
+    onSubTabChange?.(tab);
+  };
+
+  return (
+    <div className="space-y-6 max-w-4xl">
+      <header className="flex items-center justify-between">
+        <div>
+          <h2 className="text-3xl font-serif font-bold text-mck-navy">设置</h2>
+        </div>
+      </header>
+
+      {/* 子导航标签 */}
+      <div className="flex border-b border-mck-border">
+        <button
+          onClick={() => handleSubTabChange("account")}
+          className={cn(
+            "px-6 py-3 text-sm font-bold border-b-2 transition-colors flex items-center gap-2",
+            subTab === "account" 
+              ? "border-mck-blue text-mck-navy" 
+              : "border-transparent text-mck-navy/40 hover:text-mck-navy/60"
+          )}
+        >
+          <User size={16} />
+          账户设置
+        </button>
+        <button
+          onClick={() => handleSubTabChange("system")}
+          className={cn(
+            "px-6 py-3 text-sm font-bold border-b-2 transition-colors flex items-center gap-2",
+            subTab === "system" 
+              ? "border-mck-blue text-mck-navy" 
+              : "border-transparent text-mck-navy/40 hover:text-mck-navy/60"
+          )}
+        >
+          <Settings size={16} />
+          系统设置
+        </button>
+      </div>
+
+      {/* 账户设置内容 */}
+      {subTab === "account" && <AccountSettings />}
+
+      {/* 系统设置内容 */}
+      {subTab === "system" && <SystemSettingsContent />}
+    </div>
+  );
+};
+
+// 账户设置组件
+const AccountSettings: React.FC = () => {
+  const [accountInfo, setAccountInfo] = useState({
+    email: "admin@zhili-sanhui.com",
+    displayName: "系统管理员",
+    department: "董事会秘书处",
+    userId: "USR-2026-0420-001",
+    lastLogin: "2026-04-15 22:30",
+  });
+  const [isEditing, setIsEditing] = useState(false);
+  const [notificationPrefs, setNotificationPrefs] = useState({
+    meetingReminder: true,
+    complianceAlert: true,
+    documentUpdate: false,
+    systemNotice: true,
+  });
+
+  return (
+    <div className="space-y-8">
+      {/* 基本信息 */}
+      <section className="mck-card">
+        <div className="flex items-center gap-3 mb-6 pb-4 border-b border-mck-border">
+          <div className="w-10 h-10 bg-mck-bg flex items-center justify-center text-mck-blue">
+            <User size={20} />
+          </div>
+          <div>
+            <h3 className="text-lg font-serif font-bold">基本信息</h3>
+            <p className="text-[10px] text-mck-navy/40 uppercase tracking-widest">管理账户信息与个人资料</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/40">邮箱地址</label>
+            <div className="px-4 py-2 bg-mck-bg/50 border border-mck-border text-sm text-mck-navy">
+              {accountInfo.email}
+            </div>
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/40">显示名称</label>
+            <input 
+              type="text" 
+              value={accountInfo.displayName}
+              onChange={e => setAccountInfo({...accountInfo, displayName: e.target.value})}
+              disabled={!isEditing}
+              className="w-full border border-mck-border px-4 py-2 text-sm focus:outline-none focus:border-mck-blue disabled:bg-mck-bg/50 disabled:text-mck-navy/60"
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/40">所属部门</label>
+            <div className="px-4 py-2 bg-mck-bg/50 border border-mck-border text-sm text-mck-navy">
+              {accountInfo.department}
+            </div>
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/40">用户ID</label>
+            <div className="px-4 py-2 bg-mck-bg/50 border border-mck-border text-sm text-mck-navy font-mono">
+              {accountInfo.userId}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end mt-6">
+          <button
+            onClick={() => setIsEditing(!isEditing)}
+            className={cn(
+              "px-6 py-2 text-xs font-bold uppercase tracking-widest transition-all",
+              isEditing 
+                ? "bg-mck-blue text-white hover:bg-mck-navy" 
+                : "border border-mck-border text-mck-navy/60 hover:text-mck-navy hover:border-mck-navy"
+            )}
+          >
+            {isEditing ? "保存修改" : "编辑资料"}
+          </button>
+        </div>
+      </section>
+
+      {/* 安全设置 */}
+      <section className="mck-card">
+        <div className="flex items-center gap-3 mb-6 pb-4 border-b border-mck-border">
+          <div className="w-10 h-10 bg-mck-bg flex items-center justify-center text-mck-blue">
+            <Lock size={20} />
+          </div>
+          <div>
+            <h3 className="text-lg font-serif font-bold">安全设置</h3>
+            <p className="text-[10px] text-mck-navy/40 uppercase tracking-widest">密码与认证管理</p>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div className="flex items-center justify-between p-4 border border-mck-border">
+            <div>
+              <h4 className="text-sm font-bold text-mck-navy">修改密码</h4>
+              <p className="text-xs text-mck-navy/40">上次修改于 30 天前</p>
+            </div>
+            <button className="px-4 py-2 text-xs font-bold border border-mck-border text-mck-navy hover:border-mck-blue hover:text-mck-blue transition-all">
+              修改密码
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between p-4 border border-mck-border">
+            <div>
+              <h4 className="text-sm font-bold text-mck-navy">双因素认证</h4>
+              <p className="text-xs text-mck-navy/40">为账户添加额外的安全保护</p>
+            </div>
+            <button className="px-4 py-2 text-xs font-bold bg-green-50 border border-green-200 text-green-700">
+              已启用
+            </button>
+          </div>
+
+          <div className="p-4 bg-mck-bg/30 border border-mck-border">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-bold text-mck-navy/60 uppercase tracking-widest">登录日志</span>
+              <span className="text-[10px] text-mck-navy/40">最近 5 次登录</span>
+            </div>
+            <div className="space-y-2">
+              {[
+                { time: "2026-04-15 22:30", ip: "192.168.1.100", location: "北京市" },
+                { time: "2026-04-14 09:15", ip: "192.168.1.100", location: "北京市" },
+                { time: "2026-04-12 16:42", ip: "10.0.0.5", location: "上海市" },
+              ].map((log, i) => (
+                <div key={i} className="flex justify-between text-[10px] text-mck-navy/60 py-1 border-b border-mck-border/50 last:border-0">
+                  <span>{log.time} · {log.location}</span>
+                  <span className="font-mono">{log.ip}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 通知偏好 */}
+      <section className="mck-card">
+        <div className="flex items-center gap-3 mb-6 pb-4 border-b border-mck-border">
+          <div className="w-10 h-10 bg-mck-bg flex items-center justify-center text-mck-blue">
+            <Bell size={20} />
+          </div>
+          <div>
+            <h3 className="text-lg font-serif font-bold">通知偏好</h3>
+            <p className="text-[10px] text-mck-navy/40 uppercase tracking-widest">选择您希望接收的通知类型</p>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          {[
+            { key: "meetingReminder", label: "会议提醒", desc: "会议开始前 24 小时发送提醒" },
+            { key: "complianceAlert", label: "合规预警", desc: "当检测到合规风险时通知" },
+            { key: "documentUpdate", label: "文书更新", desc: "文书生成或修改时通知" },
+            { key: "systemNotice", label: "系统公告", desc: "重要系统更新和维护通知" },
+          ].map((item) => (
+            <div key={item.key} className="flex items-center justify-between p-4 border border-mck-border">
+              <div>
+                <h4 className="text-sm font-bold text-mck-navy">{item.label}</h4>
+                <p className="text-xs text-mck-navy/40">{item.desc}</p>
+              </div>
+              <button 
+                onClick={() => setNotificationPrefs({...notificationPrefs, [item.key]: !notificationPrefs[item.key as keyof typeof notificationPrefs]})}
+                className={cn(
+                  "w-12 h-6 rounded-full transition-all relative",
+                  notificationPrefs[item.key as keyof typeof notificationPrefs] ? "bg-mck-blue" : "bg-mck-border"
+                )}
+              >
+                <div className={cn(
+                  "absolute top-1 w-4 h-4 bg-white rounded-full transition-all",
+                  notificationPrefs[item.key as keyof typeof notificationPrefs] ? "left-7" : "left-1"
+                )} />
+              </button>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* 登录信息 */}
+      <div className="text-xs text-mck-navy/40 text-right">
+        最后登录时间：{accountInfo.lastLogin}
+      </div>
+    </div>
+  );
+};
+
+// 系统设置内容组件（原内容）
+const SystemSettingsContent: React.FC = () => {
   const [settings, setSettings] = useState<ApiSettings>(() => {
     const saved = localStorage.getItem("corporate_ai_settings");
     return saved ? JSON.parse(saved) : defaultSettings;
@@ -54,36 +303,30 @@ export const SystemSettings: React.FC = () => {
   };
 
   return (
-    <div className="space-y-8 max-w-4xl">
-      <header className="flex items-center justify-between">
-        <div>
-          <h2 className="text-3xl font-serif font-bold text-mck-navy">系统设置</h2>
-          <p className="text-mck-navy/60 mt-1">配置 API 密钥、模型参数与系统运行环境</p>
-        </div>
-        <div className="flex gap-4">
-          <button 
-            onClick={resetToDefault}
-            className="px-6 py-2 text-xs font-bold uppercase tracking-widest text-mck-navy/40 hover:text-mck-navy transition-all"
-          >
-            重置默认
-          </button>
-          <button 
-            onClick={handleSave}
-            disabled={isSaving}
-            className="flex items-center gap-2 px-8 py-2 bg-mck-blue text-white text-xs font-bold uppercase tracking-widest hover:bg-mck-navy transition-all disabled:opacity-50"
-          >
-            {isSaving ? <RefreshCw size={16} className="animate-spin" /> : <Save size={16} />}
-            {isSaving ? "保存中..." : "保存配置"}
-          </button>
-        </div>
-      </header>
-
+    <div className="space-y-8">
       {saveStatus === "success" && (
         <div className="p-4 bg-green-50 border border-green-100 text-green-700 text-sm flex items-center gap-2">
           <CheckCircle size={16} />
           配置已成功保存并同步至系统环境。
         </div>
       )}
+
+      <div className="flex justify-end gap-4">
+        <button 
+          onClick={resetToDefault}
+          className="px-6 py-2 text-xs font-bold uppercase tracking-widest text-mck-navy/40 hover:text-mck-navy transition-all"
+        >
+          重置默认
+        </button>
+        <button 
+          onClick={handleSave}
+          disabled={isSaving}
+          className="flex items-center gap-2 px-8 py-2 bg-mck-blue text-white text-xs font-bold uppercase tracking-widest hover:bg-mck-navy transition-all disabled:opacity-50"
+        >
+          {isSaving ? <RefreshCw size={16} className="animate-spin" /> : <Save size={16} />}
+          {isSaving ? "保存中..." : "保存配置"}
+        </button>
+      </div>
 
       <div className="grid grid-cols-1 gap-8">
         {/* Baidu Speech Settings */}

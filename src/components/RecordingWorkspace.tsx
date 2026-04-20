@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
 import { FileText, Upload, Loader2, Edit3, Save, Download, Mic, Clock, Trash2, FileAudio, Type, AlignLeft, AlignCenter, AlignRight, AlignJustify, X, Maximize2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -76,6 +76,47 @@ export const RecordingWorkspace: React.FC<RecordingWorkspaceProps> = ({ meetingI
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
+  const previewViewportRef = useRef<HTMLDivElement>(null);
+  const previewPaperRef = useRef<HTMLDivElement>(null);
+  const [paperScale, setPaperScale] = useState(1);
+  const [paperNaturalSize, setPaperNaturalSize] = useState({ w: 0, h: 0 });
+
+  const updatePaperScale = useCallback(() => {
+    const vp = previewViewportRef.current;
+    const paper = previewPaperRef.current;
+    if (!vp || !paper) return;
+    const iw = paper.offsetWidth;
+    const ih = paper.scrollHeight;
+    if (iw < 8 || ih < 8) return;
+    setPaperNaturalSize({ w: iw, h: ih });
+    const pad = 8;
+    const cw = Math.max(0, vp.clientWidth - pad * 2);
+    const ch = Math.max(0, vp.clientHeight - pad * 2);
+    const s = Math.min(cw / iw, ch / ih);
+    if (Number.isFinite(s) && s > 0) {
+      setPaperScale(s);
+    }
+  }, []);
+
+  useLayoutEffect(() => {
+    updatePaperScale();
+  }, [meetingContent, docFormat, meetingTitle, expandedPanel, updatePaperScale]);
+
+  useEffect(() => {
+    const vp = previewViewportRef.current;
+    const paper = previewPaperRef.current;
+    if (!vp) return;
+    const ro = new ResizeObserver(() => {
+      requestAnimationFrame(updatePaperScale);
+    });
+    ro.observe(vp);
+    if (paper) ro.observe(paper);
+    window.addEventListener("resize", updatePaperScale);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", updatePaperScale);
+    };
+  }, [updatePaperScale, expandedPanel]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
@@ -292,7 +333,7 @@ export const RecordingWorkspace: React.FC<RecordingWorkspaceProps> = ({ meetingI
 
   // 渲染编辑器内容
   const renderEditor = () => (
-    <div className="flex flex-col h-[400px] max-w-full">
+    <div className="flex flex-col h-full min-h-0 max-w-full">
       <div className="flex items-center justify-between mb-3 flex-shrink-0">
         <div className="flex items-center gap-2">
           <h3 className="text-base font-serif font-bold flex items-center gap-2">
@@ -340,11 +381,11 @@ export const RecordingWorkspace: React.FC<RecordingWorkspaceProps> = ({ meetingI
 
       {uploadError && <div className="mb-3 p-2 bg-red-50 border border-red-200 text-red-700 text-xs rounded flex-shrink-0">{uploadError}</div>}
 
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         {isEditing ? (
-          <textarea ref={textareaRef} value={meetingContent} onChange={(e) => setMeetingContent(e.target.value)} className="w-full h-[300px] p-4 text-sm leading-relaxed text-mck-navy/80 bg-mck-bg/30 border border-mck-border rounded resize-none focus:outline-none focus:border-mck-blue font-sans" placeholder="在此输入或编辑会议纪要..." />
+          <textarea ref={textareaRef} value={meetingContent} onChange={(e) => setMeetingContent(e.target.value)} className="w-full flex-1 min-h-[12rem] p-4 text-sm leading-relaxed text-mck-navy/80 bg-mck-bg/30 border border-mck-border rounded resize-none focus:outline-none focus:border-mck-blue font-sans" placeholder="在此输入或编辑会议纪要..." />
         ) : (
-          <div className="w-full h-[300px] p-4 overflow-y-auto bg-mck-bg/20 rounded">
+          <div className="w-full flex-1 min-h-[12rem] p-4 overflow-y-auto bg-mck-bg/20 rounded">
             <pre className="text-sm leading-relaxed text-mck-navy/80 whitespace-pre-wrap font-sans">{meetingContent}</pre>
           </div>
         )}
@@ -352,9 +393,9 @@ export const RecordingWorkspace: React.FC<RecordingWorkspaceProps> = ({ meetingI
     </div>
   );
 
-  // 渲染预览内容
+  // 渲染预览内容（A4 整页等比缩放以适配可视区域，横纵比例一致）
   const renderPreview = () => (
-    <div className="flex flex-col h-[400px] max-w-full">
+    <div className="flex flex-col h-full min-h-0 max-w-full">
       <div className="flex items-center justify-between mb-3 flex-shrink-0">
         <h3 className="text-base font-serif font-bold flex items-center gap-2">
           <FileText size={18} className="text-mck-blue" />
@@ -402,9 +443,39 @@ export const RecordingWorkspace: React.FC<RecordingWorkspaceProps> = ({ meetingI
         </div>
       </div>
 
-      <div className="flex-1 overflow-hidden bg-gray-100 border border-mck-border rounded">
-        <div className="h-[300px] overflow-y-auto p-4">
-          <div className="bg-white shadow-lg mx-auto" style={{ width: '210mm', minHeight: '297mm', padding: '25.4mm', boxSizing: 'border-box' }}>
+      <div
+        ref={previewViewportRef}
+        className="flex-1 min-h-[12rem] overflow-auto bg-gray-100 border border-mck-border rounded p-4 flex items-start justify-center"
+      >
+        <div
+          className="relative shrink-0 mx-auto"
+          style={{
+            width:
+              paperNaturalSize.w > 0
+                ? paperNaturalSize.w * paperScale
+                : "min(794px, calc(100% - 1rem))",
+            height:
+              paperNaturalSize.h > 0
+                ? paperNaturalSize.h * paperScale
+                : "min(1123px, 70vh)",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            ref={previewPaperRef}
+            className="bg-white shadow-lg"
+            style={{
+              position: "absolute",
+              left: 0,
+              top: 0,
+              width: "210mm",
+              minHeight: "297mm",
+              padding: "25.4mm",
+              boxSizing: "border-box",
+              transform: `scale(${paperScale})`,
+              transformOrigin: "top left",
+            }}
+          >
             <div className="border-b border-gray-300 pb-4 mb-6">
               <p className="text-xs text-gray-400 text-center">智理科技股份有限公司</p>
             </div>
@@ -414,26 +485,37 @@ export const RecordingWorkspace: React.FC<RecordingWorkspaceProps> = ({ meetingI
             </h1>
 
             <div className="text-black" style={{ fontSize: `${docFormat.fontSize}pt`, lineHeight: docFormat.lineHeight, fontFamily: docFormat.fontFamily, textAlign: docFormat.textAlign }}>
-              {meetingContent.split('\n').map((line, index) => {
+              {meetingContent.split("\n").map((line, index) => {
                 const isHeader = line.match(/^(会议时间|会议地点|主持人|记录人|出席人员|会议内容)：/);
                 const isSpeaker = line.match(/^([^：:]+)[：:]/);
-                
+
                 if (!line.trim()) return <div key={index} style={{ height: `${docFormat.fontSize * docFormat.lineHeight * 0.5}pt` }} />;
-                
+
                 if (isHeader) return <p key={index} className="font-bold mb-2" style={{ fontFamily: "SimHei, '黑体', sans-serif", textIndent: 0 }}>{line}</p>;
-                
-                if (isSpeaker && !line.startsWith('会议')) {
+
+                if (isSpeaker && !line.startsWith("会议")) {
                   const [speaker, ...contentParts] = line.split(/[：:]/);
-                  const content = contentParts.join('：');
-                  return <p key={index} className="mb-3" style={{ textIndent: 0 }}><span className="font-bold" style={{ fontFamily: "SimHei, '黑体', sans-serif" }}>{speaker}：</span>{content}</p>;
+                  const content = contentParts.join("：");
+                  return (
+                    <p key={index} className="mb-3" style={{ textIndent: 0 }}>
+                      <span className="font-bold" style={{ fontFamily: "SimHei, '黑体', sans-serif" }}>
+                        {speaker}：
+                      </span>
+                      {content}
+                    </p>
+                  );
                 }
-                
-                return <p key={index} className="mb-3" style={{ textIndent: `${docFormat.fontSize * 2}pt` }}>{line}</p>;
+
+                return (
+                  <p key={index} className="mb-3" style={{ textIndent: `${docFormat.fontSize * 2}pt` }}>
+                    {line}
+                  </p>
+                );
               })}
             </div>
 
             <div className="border-t border-gray-300 pt-4 mt-12">
-              <p className="text-xs text-gray-400 text-center">生成时间：{new Date().toLocaleString('zh-CN')}</p>
+              <p className="text-xs text-gray-400 text-center">生成时间：{new Date().toLocaleString("zh-CN")}</p>
             </div>
           </div>
         </div>
@@ -457,7 +539,7 @@ export const RecordingWorkspace: React.FC<RecordingWorkspaceProps> = ({ meetingI
               <X size={24} />
             </button>
           </div>
-          <div className="flex-1 overflow-hidden">
+          <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
             {expandedPanel === "editor" ? renderEditor() : renderPreview()}
           </div>
         </div>
@@ -507,14 +589,14 @@ export const RecordingWorkspace: React.FC<RecordingWorkspaceProps> = ({ meetingI
         </div>
 
         {/* Main Content: Editor + Preview */}
-        <div className="lg:col-span-3 flex gap-4 min-w-0">
+        <div className="lg:col-span-3 flex gap-4 min-w-0 items-stretch min-h-[min(85vh,56rem)]">
           {/* Editor */}
-          <div className="flex-1 mck-card overflow-hidden">
+          <div className="flex-1 mck-card overflow-hidden flex flex-col min-h-0 min-w-0">
             {renderEditor()}
           </div>
 
           {/* Preview */}
-          <div className="flex-1 mck-card overflow-hidden">
+          <div className="flex-1 mck-card overflow-hidden flex flex-col min-h-0 min-w-0">
             {renderPreview()}
           </div>
         </div>

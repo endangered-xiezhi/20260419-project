@@ -272,7 +272,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     <div className="space-y-8">
       <header>
         <h2 className="text-3xl font-serif font-bold text-mck-navy">全局控制台</h2>
-        <p className="text-mck-navy/60 mt-1">实时监控三会运作合规性与进度</p>
       </header>
 
       {/* 可点击的统计卡片 */}

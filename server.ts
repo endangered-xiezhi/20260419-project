@@ -1,13 +1,16 @@
+import dotenv from "dotenv";
+dotenv.config();
+
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import dotenv from "dotenv";
 import multer from "multer";
 import fs from "fs/promises";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import crypto from "crypto";
 import { extractDocumentPlainText, titleFromDocument } from "./lib/knowledgeExtract.js";
+import { glmChatCompletion } from "./lib/glmChat.js";
 
 // 腾讯云配置 - 从环境变量读取
 const TENCENT_SECRET_ID = process.env.TENCENT_SECRET_ID || "";
@@ -23,8 +26,6 @@ async function initTencentSDK() {
   CreateRecTaskRequest = asrModule.CreateRecTaskRequest;
   DescribeTaskStatusRequest = asrModule.DescribeTaskStatusRequest;
 }
-
-dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -81,6 +82,79 @@ async function startServer() {
   // API Routes
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
+  });
+
+  /** 智谱 GLM 是否已配置（不返回密钥） */
+  app.get("/api/llm/status", (_req, res) => {
+    const key = process.env.ZHIPU_API_KEY || "";
+    res.json({
+      provider: "zhipu",
+      configured: Boolean(key.trim()),
+      defaultModel: process.env.ZHIPU_MODEL || "glm-4-flash",
+    });
+  });
+
+  /**
+   * 服务端代理调用智谱 GLM（密钥仅存在于服务端环境变量 ZHIPU_API_KEY）
+   * Body: { message?: string, messages?: { role, content }[], model?: string, temperature?: number }
+   */
+  app.post("/api/llm/chat", async (req, res) => {
+    try {
+      const apiKey = process.env.ZHIPU_API_KEY || "";
+      if (!apiKey.trim()) {
+        return res.status(503).json({
+          error: "未配置智谱 API Key",
+          hint: "请在项目根目录 .env 中设置 ZHIPU_API_KEY（勿提交到 Git）",
+        });
+      }
+
+      const { message, messages, model, temperature } = req.body as {
+        message?: string;
+        messages?: Array<{ role: string; content: string }>;
+        model?: string;
+        temperature?: number;
+      };
+
+      let msgs: Array<{ role: "system" | "user" | "assistant"; content: string }> = [];
+
+      if (Array.isArray(messages) && messages.length > 0) {
+        for (const m of messages) {
+          if (!m?.content || typeof m.content !== "string") continue;
+          const role = m.role === "system" || m.role === "assistant" ? m.role : "user";
+          msgs.push({ role, content: m.content });
+        }
+      }
+
+      if (msgs.length === 0 && typeof message === "string" && message.trim()) {
+        msgs = [{ role: "user", content: message.trim() }];
+      }
+
+      if (msgs.length === 0) {
+        return res.status(400).json({
+          error: "请提供 message 或 messages",
+        });
+      }
+
+      const result = await glmChatCompletion({
+        apiKey,
+        model: model || process.env.ZHIPU_MODEL || "glm-4-flash",
+        messages: msgs,
+        temperature: typeof temperature === "number" ? temperature : undefined,
+      });
+
+      res.json({
+        success: true,
+        data: {
+          content: result.content,
+          model: model || process.env.ZHIPU_MODEL || "glm-4-flash",
+        },
+      });
+    } catch (e) {
+      console.error("GLM 调用失败:", e);
+      res.status(500).json({
+        error: e instanceof Error ? e.message : "GLM 调用失败",
+      });
+    }
   });
 
   // 文件上传接口

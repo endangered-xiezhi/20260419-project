@@ -97,7 +97,7 @@ export const KnowledgeBase: React.FC = () => {
   }, [isEditing, currentItem.id, currentItem.ocrSourceUrl]);
 
   const filteredItems = items.filter(item => 
-    item.title.includes(searchQuery) || item.content.includes(searchQuery)
+    item.title.includes(searchQuery)
   );
 
   // 按分类筛选
@@ -210,12 +210,9 @@ export const KnowledgeBase: React.FC = () => {
       <header className="flex items-center justify-between">
         <div>
           <h2 className="text-3xl font-serif font-bold text-mck-navy">规则文件库</h2>
-          <p className="text-mck-navy/60 mt-1">
-            管理法律法规与公司规章，实时同步 AI 知识库
-            {!kbLoading && items.length > 0 && (
-              <span className="ml-2 text-mck-navy/40">· 已载入 {items.length} 份</span>
-            )}
-          </p>
+          {!kbLoading && items.length > 0 && (
+            <p className="text-mck-navy/40 mt-1 text-xs">已载入 {items.length} 份</p>
+          )}
         </div>
         <button 
           onClick={() => { setIsEditing(true); setCurrentItem({ category: "规章制度" }); }}
@@ -362,7 +359,7 @@ export const KnowledgeBase: React.FC = () => {
               <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-mck-navy/40" />
               <input 
                 type="text" 
-                placeholder="搜索法律文件、规章条款..." 
+                placeholder="搜索法律法规、公司章程制度…"  
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 className="w-full bg-white border border-mck-border pl-12 pr-4 py-3 text-sm focus:outline-none focus:border-mck-blue"

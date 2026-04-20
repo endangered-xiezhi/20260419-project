@@ -407,7 +407,6 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
     <div className="space-y-6 h-[calc(100vh-120px)]">
       <header>
         <h2 className="text-3xl font-serif font-bold text-mck-navy">合规审查</h2>
-        <p className="text-mck-navy/60 mt-1">AI 驱动的合规风险识别与建议</p>
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 h-[calc(100%-80px)]">

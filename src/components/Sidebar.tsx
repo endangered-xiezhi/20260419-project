@@ -14,7 +14,7 @@ const navItems = [
   { id: "compliance", label: "合规审查", icon: ShieldCheck },
   { id: "documents", label: "文书中心", icon: FileText },
   { id: "knowledge", label: "规则文件库", icon: Book },
-  { id: "users", label: "人员名单", icon: Users },
+  { id: "users", label: "与会人员", icon: Users },
 ];
 
 export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
@@ -53,7 +53,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
           )}
         >
           <Settings size={18} className={activeTab === "settings" ? "text-mck-blue" : ""} />
-          <span>系统设置</span>
+          <span>设置</span>
         </button>
       </div>
     </div>

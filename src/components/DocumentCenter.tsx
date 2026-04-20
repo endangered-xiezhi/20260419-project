@@ -104,7 +104,6 @@ export const DocumentCenter: React.FC<DocumentCenterProps> = ({ meetingId }) => 
       <header className="flex items-center justify-between">
         <div>
           <h2 className="text-3xl font-serif font-bold text-mck-navy">文书中心</h2>
-          <p className="text-mck-navy/60 mt-1">一键生成标准合规的三会档案</p>
         </div>
         <button className="px-6 py-2 bg-mck-blue text-white text-xs font-bold uppercase tracking-widest hover:bg-mck-navy transition-all">
           新建文书模板
@@ -248,16 +247,6 @@ export const DocumentCenter: React.FC<DocumentCenterProps> = ({ meetingId }) => 
                 </div>
               </div>
             </div>
-          </div>
-
-          <div className="mck-card bg-mck-bg">
-            <h3 className="text-xs font-bold uppercase tracking-widest text-mck-navy/40 mb-4">智能排版引擎</h3>
-            <p className="text-sm text-mck-navy/80 mb-6">
-              系统已根据《党政机关公文格式》(GB/T 9704-2012) 自动优化所有文书排版。
-            </p>
-            <button className="w-full py-3 bg-mck-blue text-white text-xs font-bold uppercase tracking-widest hover:bg-mck-navy transition-all">
-              更新排版标准
-            </button>
           </div>
         </div>
       </div>

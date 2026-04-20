@@ -1,7 +1,29 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Plus, Filter, Calendar as CalendarIcon, MoreHorizontal, ChevronRight, ChevronLeft, List, X, Edit2 } from "lucide-react";
-import { Meeting, MeetingType } from "../types";
+import { Plus, Filter, Calendar as CalendarIcon, MoreHorizontal, ChevronRight, ChevronLeft, List, X, Edit2, Users, Save, Mail, Send, Pencil, Check } from "lucide-react";
+import { Meeting, MeetingType, Personnel } from "../types";
 import { cn } from "@/lib/utils";
+
+// 排序优先级：董事 > 监事 > 高级管理人员 > 单一身份股东
+const getPersonnelSortPriority = (p: Personnel): number => {
+  // 董事类职位优先级最高 (1)
+  if (["董事长", "董事", "独立董事"].includes(p.role)) return 1;
+  // 监事优先级第二 (2)
+  if (p.role === "监事") return 2;
+  // 高级管理人员优先级第三 (3)
+  if (["总经理", "副总经理", "财务负责人", "董事会秘书"].includes(p.role)) return 3;
+  // 单一身份股东排最后 (4)
+  if (p.isShareholder) return 4;
+  // 默认 (5)
+  return 5;
+};
+
+// 会议类型门槛说明
+const meetingThresholds: Record<string, { threshold: string; description: string }> = {
+  "股东会": { threshold: "全体股东", description: "股东大会是公司的最高权力机构" },
+  "董事会": { threshold: "全体董事", description: "董事会是公司的执行机构" },
+  "监事会": { threshold: "全体监事", description: "监事会是公司的监督机构" },
+  "临时股东会": { threshold: "≥10%股份", description: "提议召开临时股东会/自行召集和主持" },
+};
 
 const initialMeetings: Meeting[] = [
   { id: "1", title: "2026年第一次临时股东大会", type: "股东会", date: "2026-04-10", status: "筹备中", complianceScore: 98, notifiedDays: 11 },
@@ -46,6 +68,7 @@ function CalendarView({
     "股东会": "bg-purple-500",
     "董事会": "bg-mck-blue",
     "监事会": "bg-teal-500",
+    "临时股东会": "bg-indigo-500",
   };
   const statusColors: Record<string, string> = {
     "进行中": "bg-mck-blue text-white",
@@ -151,7 +174,12 @@ function CalendarView({
 
       <div className="flex flex-wrap items-center gap-4 pt-2 border-t border-mck-border">
         <span className="text-[10px] uppercase tracking-widest text-mck-navy/40 font-bold">会议类型：</span>
-        {Object.entries({ "股东会": "bg-purple-500", "董事会": "bg-mck-blue", "监事会": "bg-teal-500" }).map(([k, v]) => (
+        {Object.entries({
+          "股东会": "bg-purple-500", 
+          "董事会": "bg-mck-blue", 
+          "监事会": "bg-teal-500",
+          "临时股东会": "bg-indigo-500"
+        }).map(([k, v]) => (
           <span key={k} className="flex items-center gap-1.5 text-[10px] text-mck-navy/60 font-medium">
             <span className={cn("w-2 h-2 rounded-full", v)} />
             {k}
@@ -203,11 +231,11 @@ function DayPanel({ selectedDate, meetings, onClose }: {
         ) : (
           dayMeetings.map((m) => (
             <div key={m.id} className="border border-mck-border rounded-lg p-3 hover:shadow-sm transition-shadow bg-mck-bg/50">
-              <div className="flex items-start justify-between gap-2 mb-2">
-                <span className={cn("inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase border", typeColors[m.type] || "bg-mck-bg text-mck-navy/60 border-mck-border")}>
+              <div className="flex items-start justify-between gap-2 mb-2 flex-wrap">
+                <span className={cn("inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase border flex-shrink-0", typeColors[m.type] || "bg-mck-bg text-mck-navy/60 border-mck-border")}>
                   {m.type}
                 </span>
-                <span className={cn("text-[10px] font-bold uppercase px-2 py-0.5 border", statusColors[m.status] || "")}>
+                <span className={cn("text-[10px] font-bold uppercase px-2 py-0.5 border flex-shrink-0 whitespace-nowrap", statusColors[m.status] || "")}>
                   {m.status}
                 </span>
               </div>
@@ -246,6 +274,55 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
   const [showDayPanel, setShowDayPanel] = useState(false);
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
 
+  // 新建会议弹窗状态
+  const [showNewMeetingModal, setShowNewMeetingModal] = useState(false);
+  const [newMeeting, setNewMeeting] = useState<Partial<Meeting>>({
+    type: "股东会",
+    status: "筹备中",
+    participants: [],
+    threshold: "",
+  });
+
+  // 编辑与会人员弹窗
+  const [editingMeetingParticipants, setEditingMeetingParticipants] = useState<{ meetingId: string; participants: string[] } | null>(null);
+  const [showEmailConfirm, setShowEmailConfirm] = useState(false);
+  const [showEmailSuccess, setShowEmailSuccess] = useState(false);
+  const [pendingEmailTarget, setPendingEmailTarget] = useState<{ name: string; email: string } | null>(null);
+  const [showNotifyAllConfirm, setShowNotifyAllConfirm] = useState(false);
+  const [showNotifyAllSuccess, setShowNotifyAllSuccess] = useState(false);
+  // 单人发送通知弹窗
+  const [showSingleNotifyConfirm, setShowSingleNotifyConfirm] = useState(false);
+  const [showSingleNotifySuccess, setShowSingleNotifySuccess] = useState(false);
+  const [pendingSingleNotify, setPendingSingleNotify] = useState<{ name: string; email: string } | null>(null);
+  // 向其余全体股东发送邮件通知
+  const [showMailAllConfirm, setShowMailAllConfirm] = useState(false);
+  const [showMailAllSuccess, setShowMailAllSuccess] = useState(false);
+  // 向其余全体股东发送邮件勾选状态
+  const [sendMailToAllOthers, setSendMailToAllOthers] = useState(false);
+  // 记录已发送邮件的人员ID和其余全体股东
+  const [sentPersonnelIds, setSentPersonnelIds] = useState<Set<string>>(new Set());
+  const [sentToAllOthers, setSentToAllOthers] = useState(false);
+
+  // 获取与会人员列表（排序：董监高在前，单一身份股东按持股比例在后）
+  const personnelList: Personnel[] = useMemo(() => {
+    const saved = localStorage.getItem("corporate_personnel_matrix");
+    const list: Personnel[] = saved ? JSON.parse(saved) : [];
+    return [...list].sort((a, b) => {
+      const priorityA = getPersonnelSortPriority(a);
+      const priorityB = getPersonnelSortPriority(b);
+      if (priorityA !== priorityB) return priorityA - priorityB;
+      // 同类别内，使用固定排序（sortOrder）
+      if (a.sortOrder !== undefined && b.sortOrder !== undefined) {
+        return a.sortOrder - b.sortOrder;
+      }
+      // 同类别内，股东按持股份额从高到低排序
+      if (a.isShareholder && b.isShareholder) {
+        return (b.shareholding || 0) - (a.shareholding || 0);
+      }
+      return 0;
+    });
+  }, []);
+
   useEffect(() => {
     localStorage.setItem("corporate_meetings_list", JSON.stringify(meetings));
   }, [meetings]);
@@ -263,18 +340,244 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
     ? filteredMeetings.filter((m) => m.date === selectedDate)
     : filteredMeetings;
 
+  // 处理会议类型变更
+  const handleTypeChange = (type: MeetingType) => {
+    setNewMeeting({
+      ...newMeeting,
+      type,
+      threshold: meetingThresholds[type]?.threshold || "",
+    });
+  };
+
+  // 切换与会人员
+  const toggleParticipant = (personId: string) => {
+    const current = newMeeting.participants || [];
+    const updated = current.includes(personId)
+      ? current.filter(id => id !== personId)
+      : [...current, personId];
+    setNewMeeting({ ...newMeeting, participants: updated });
+  };
+
+  // 创建新会议
+  const handleCreateMeeting = () => {
+    if (!newMeeting.title || !newMeeting.date) return;
+
+    const newMeetingData: Meeting = {
+      id: Date.now().toString(),
+      title: newMeeting.title,
+      type: newMeeting.type as MeetingType,
+      date: newMeeting.date,
+      status: "筹备中",
+      complianceScore: 100,
+      notifiedDays: 0,
+      participants: newMeeting.participants || [],
+      threshold: meetingThresholds[newMeeting.type as string]?.threshold || "",
+    };
+
+    setMeetings([newMeetingData, ...meetings]);
+    setShowNewMeetingModal(false);
+    setNewMeeting({ type: "股东会", status: "筹备中", participants: [], threshold: "" });
+  };
+
+  // 打开编辑与会人员弹窗
+  const openEditParticipants = (meeting: Meeting) => {
+    // 重置发送状态
+    setSentPersonnelIds(new Set());
+    setSentToAllOthers(false);
+    setEditingMeetingParticipants({
+      meetingId: meeting.id,
+      participants: meeting.participants || [],
+    });
+  };
+
+  // 切换与会人员
+  const toggleEditParticipant = (personId: string) => {
+    if (!editingMeetingParticipants) return;
+    const current = editingMeetingParticipants.participants;
+    const updated = current.includes(personId)
+      ? current.filter(id => id !== personId)
+      : [...current, personId];
+    setEditingMeetingParticipants({ ...editingMeetingParticipants, participants: updated });
+  };
+
+  // 保存与会人员
+  const saveParticipants = () => {
+    if (!editingMeetingParticipants) return;
+    setMeetings(meetings.map(m =>
+      m.id === editingMeetingParticipants.meetingId
+        ? { ...m, participants: editingMeetingParticipants.participants }
+        : m
+    ));
+    setEditingMeetingParticipants(null);
+  };
+
+  // 发送邮件通知
+  const sendEmailNotification = (person: Personnel) => {
+    setPendingEmailTarget({ name: person.name, email: person.email || "" });
+    setShowEmailConfirm(true);
+  };
+
+  const confirmSendEmail = () => {
+    setShowEmailConfirm(false);
+    setShowEmailSuccess(true);
+  };
+
+  // 一键通知全体股东
+  const notifyAllShareholders = () => {
+    setShowNotifyAllConfirm(true);
+  };
+
+  const confirmNotifyAll = () => {
+    setShowNotifyAllConfirm(false);
+    setShowNotifyAllSuccess(true);
+  };
+
   return (
     <div className="space-y-8">
       <header className="flex items-center justify-between">
         <div>
           <h2 className="text-3xl font-serif font-bold text-mck-navy">会议管理</h2>
-          <p className="text-mck-navy/60 mt-1">全生命周期管理三会运作流程</p>
         </div>
-        <button className="flex items-center gap-2 px-6 py-2 bg-mck-blue text-white text-xs font-bold uppercase tracking-widest hover:bg-mck-navy transition-all">
+        <button 
+          onClick={() => setShowNewMeetingModal(true)}
+          className="flex items-center gap-2 px-6 py-2 bg-mck-blue text-white text-xs font-bold uppercase tracking-widest hover:bg-mck-navy transition-all"
+        >
           <Plus size={16} />
           发起新会议
         </button>
       </header>
+
+      {/* 新建会议弹窗 */}
+      {showNewMeetingModal && (
+        <div className="fixed inset-0 bg-mck-navy/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-2xl mck-card shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6 pb-4 border-b border-mck-border">
+              <h3 className="text-xl font-serif font-bold text-mck-navy">发起新会议</h3>
+              <button onClick={() => setShowNewMeetingModal(false)} className="text-mck-navy/40 hover:text-mck-navy">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              {/* 会议标题 */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/40">会议标题</label>
+                <input
+                  type="text"
+                  value={newMeeting.title || ""}
+                  onChange={e => setNewMeeting({ ...newMeeting, title: e.target.value })}
+                  className="w-full border border-mck-border px-4 py-2 text-sm focus:outline-none focus:border-mck-blue"
+                  placeholder="请输入会议标题"
+                />
+              </div>
+
+              {/* 会议类型 */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/40">会议类型</label>
+                <select
+                  value={newMeeting.type || "股东会"}
+                  onChange={e => handleTypeChange(e.target.value as MeetingType)}
+                  className="w-full border border-mck-border px-4 py-2 text-sm focus:outline-none focus:border-mck-blue bg-white"
+                >
+                  {Object.keys(meetingThresholds).map(type => (
+                    <option key={type} value={type}>{type}</option>
+                  ))}
+                </select>
+                {/* 门槛说明 */}
+                <div className="mt-2 p-3 bg-mck-bg/50 rounded-lg border border-mck-border/50">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-[10px] font-bold text-mck-blue uppercase">门槛要求</span>
+                  </div>
+                  <p className="text-sm font-medium text-mck-navy">{meetingThresholds[newMeeting.type as string]?.threshold}</p>
+                  <p className="text-[10px] text-mck-navy/50 mt-1">{meetingThresholds[newMeeting.type as string]?.description}</p>
+                </div>
+              </div>
+
+              {/* 会议日期 */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/40">会议日期</label>
+                <input
+                  type="date"
+                  value={newMeeting.date || ""}
+                  onChange={e => setNewMeeting({ ...newMeeting, date: e.target.value })}
+                  className="w-full border border-mck-border px-4 py-2 text-sm focus:outline-none focus:border-mck-blue"
+                />
+              </div>
+
+              {/* 与会人员 */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/40">
+                  与会人员 <span className="text-mck-navy/30 normal-case font-normal">(可多选)</span>
+                </label>
+                {personnelList.length > 0 ? (
+                  <div className="border border-mck-border rounded-lg p-3 max-h-48 overflow-y-auto space-y-2">
+                    {personnelList.map(person => (
+                      <label
+                        key={person.id}
+                        className={cn(
+                          "flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors",
+                          (newMeeting.participants || []).includes(person.id)
+                            ? "bg-mck-blue/10 border border-mck-blue/30"
+                            : "hover:bg-mck-bg"
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={(newMeeting.participants || []).includes(person.id)}
+                          onChange={() => toggleParticipant(person.id)}
+                          className="w-4 h-4 accent-mck-blue"
+                        />
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-mck-navy">{person.name}</span>
+                            {person.isShareholder ? (
+                              <span className="text-[10px] bg-orange-100 px-1.5 py-0.5 text-orange-700 font-bold">股东 {person.shareholding}%</span>
+                            ) : (
+                              <span className="text-[10px] bg-mck-bg px-1.5 py-0.5 text-mck-navy/60">{person.role}</span>
+                            )}
+                          </div>
+                          {person.phone && (
+                            <span className="text-[10px] text-mck-navy/40">{person.phone}</span>
+                          )}
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="border border-mck-border rounded-lg p-6 text-center">
+                    <Users size={24} className="mx-auto text-mck-border mb-2" />
+                    <p className="text-sm text-mck-navy/40">暂无与会人员数据</p>
+                    <p className="text-[10px] text-mck-navy/30 mt-1">请先在"与会人员"中添加成员</p>
+                  </div>
+                )}
+                {(newMeeting.participants || []).length > 0 && (
+                  <p className="text-[10px] text-mck-navy/50">
+                    已选择 {newMeeting.participants?.length} 人
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* 操作按钮 */}
+            <div className="flex justify-end gap-4 mt-8 pt-4 border-t border-mck-border">
+              <button
+                onClick={() => setShowNewMeetingModal(false)}
+                className="px-6 py-2 text-xs font-bold uppercase tracking-widest text-mck-navy/60 hover:text-mck-navy"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleCreateMeeting}
+                disabled={!newMeeting.title || !newMeeting.date}
+                className="flex items-center gap-2 px-8 py-2 bg-mck-blue text-white text-xs font-bold uppercase tracking-widest hover:bg-mck-navy transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Save size={16} />
+                创建会议
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 视图切换 */}
       <div className="flex items-center justify-between border-b border-mck-border pb-4">
@@ -283,7 +586,7 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
             <Filter size={14} />
             筛选:
           </div>
-          {(["ALL", "股东会", "董事会", "监事会"] as const).map((type) => (
+          {(["ALL", "股东会", "董事会", "监事会", "临时股东会"] as const).map((type) => (
             <button
               key={type}
               onClick={() => setFilterType(type)}
@@ -379,7 +682,7 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
                       </div>
                       <div>
                         <div className="flex items-center gap-3 mb-1">
-                          <span className="text-[10px] font-bold uppercase px-2 py-0.5 bg-mck-bg text-mck-navy/60">
+                          <span className="text-[10px] font-bold uppercase px-2 py-0.5 bg-mck-bg text-mck-navy/60 flex-shrink-0 whitespace-nowrap">
                             {meeting.type}
                           </span>
                           <h4 className="text-base font-serif font-bold text-mck-navy">{meeting.title}</h4>
@@ -410,9 +713,9 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-3">
                         <span className={cn(
-                          "text-[10px] font-bold uppercase px-3 py-1 border",
+                          "text-[10px] font-bold uppercase px-3 py-1 border flex-shrink-0 whitespace-nowrap",
                           meeting.status === "进行中" ? "bg-mck-blue text-white border-mck-blue" :
                           meeting.status === "筹备中" ? "bg-white text-mck-navy border-mck-border" : "bg-mck-bg text-mck-navy/40 border-mck-bg"
                         )}>
@@ -421,18 +724,17 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
                         {meeting.status === "进行中" && onStartMeeting && (
                           <button
                             onClick={(e) => { e.stopPropagation(); onStartMeeting(meeting.id); }}
-                            className="px-4 py-1 bg-mck-blue text-white text-[10px] font-bold uppercase tracking-widest hover:bg-mck-navy transition-all"
+                            className="px-4 py-1 bg-mck-blue text-white text-[10px] font-bold uppercase tracking-widest hover:bg-mck-navy transition-all flex-shrink-0 whitespace-nowrap"
                           >
                             开始会议
                           </button>
                         )}
-                        <button className="p-2 text-mck-navy/20 hover:text-mck-navy transition-colors">
-                          <MoreHorizontal size={18} />
-                        </button>
-                        <ChevronRight size={18} className={cn(
-                          "transition-colors",
-                          selectedMeeting?.id === meeting.id ? "text-mck-blue rotate-90" : "text-mck-navy/20 group-hover:text-mck-blue"
-                        )} />
+                        <div className="w-8 flex-shrink-0 flex justify-center">
+                          <ChevronRight size={18} className={cn(
+                            "transition-colors",
+                            selectedMeeting?.id === meeting.id ? "text-mck-blue rotate-90" : "text-mck-navy/20 group-hover:text-mck-blue"
+                          )} />
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -460,18 +762,63 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
                           </p>
                         </div>
                       </div>
+
+                      {/* 与会人员显示 */}
                       <div className="mb-4">
-                        <p className="text-[10px] uppercase tracking-widest text-mck-navy/40 mb-2">合规评分</p>
-                        <div className="flex items-center gap-3">
-                          <div className="flex-1 h-2 bg-mck-bg rounded-full overflow-hidden">
-                            <div
-                              className={cn("h-full transition-all", meeting.complianceScore > 90 ? "bg-green-500" : "bg-mck-blue")}
-                              style={{ width: `${meeting.complianceScore}%` }}
-                            />
-                          </div>
-                          <span className="text-sm font-bold font-mono">{meeting.complianceScore}%</span>
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-[10px] uppercase tracking-widest text-mck-navy/40">与会人员</p>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); openEditParticipants(meeting); }}
+                            className="text-[10px] text-mck-blue hover:text-mck-navy font-bold"
+                          >
+                            + 编辑与会人员
+                          </button>
                         </div>
+                        {meeting.participants && meeting.participants.length > 0 ? (
+                          <div className="flex flex-wrap gap-2">
+                            {meeting.participants.map(pId => {
+                              const person = personnelList.find(p => p.id === pId);
+                              if (!person) return null;
+                              return (
+                                <div key={pId} className={cn(
+                                  "flex items-center gap-1.5 px-2 py-1 rounded text-[10px]",
+                                  person.organization === "股东" ? "bg-orange-100 text-orange-700" :
+                                  person.organization === "董事会" ? "bg-purple-100 text-purple-700" :
+                                  person.organization === "监事会" ? "bg-teal-100 text-teal-700" :
+                                  "bg-blue-100 text-blue-700"
+                                )}>
+                                  <span className="font-medium">{person.name}</span>
+                                  {person.shareholding && (
+                                    <span className="text-orange-600 font-bold">{person.shareholding}%</span>
+                                  )}
+                                  {person.email && (
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); sendEmailNotification(person); }}
+                                      className="ml-1 hover:text-mck-navy"
+                                      title="发送邮件通知"
+                                    >
+                                      ✉️
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <p className="text-[10px] text-mck-navy/40 italic">暂无与会人员</p>
+                        )}
+
+                        {/* 股东会额外按钮 */}
+                        {meeting.type === "股东会" && personnelList.filter(p => p.organization === "股东").length > 0 && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); notifyAllShareholders(); }}
+                            className="mt-3 flex items-center gap-2 px-4 py-2 bg-purple-600 text-white text-[10px] font-bold hover:bg-purple-700 transition-all rounded"
+                          >
+                            📢 一键通知全体股东
+                          </button>
+                        )}
                       </div>
+
                       <div className="flex gap-3">
                         <button 
                           onClick={() => onNavigate && onNavigate("documents")}
@@ -494,25 +841,8 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-12">
-        <div className="mck-card bg-white border border-mck-border p-6">
-          <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-mck-navy/40 mb-4">程序合规引擎</h3>
-          <p className="text-sm text-mck-navy/80 leading-relaxed mb-4">
-            系统已自动对标 2024 新《公司法》，实时计算法定通知期限、出席人数比例及表决权权重。
-          </p>
-          <div className="flex items-center gap-4">
-            <div className="flex -space-x-2">
-              {[1, 2, 3].map(i => (
-                <div key={i} className="w-8 h-8 rounded-full border-2 border-white bg-mck-blue flex items-center justify-center text-[10px] font-bold text-white">
-                  {String.fromCharCode(64 + i)}
-                </div>
-              ))}
-            </div>
-            <span className="text-[10px] uppercase tracking-widest text-mck-navy/40">3位合规专家在线</span>
-          </div>
-        </div>
-
-        <div className="md:col-span-2 mck-card">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-12">
+        <div className="mck-card">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-bold text-mck-navy">即将召开的会议</h3>
             <span className="text-[10px] text-mck-navy/40">{meetings.filter(m => m.status === "筹备中" || m.status === "进行中").length} 场待办</span>
@@ -569,6 +899,410 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
           </div>
         </div>
       </div>
+
+      {/* 编辑与会人员弹窗 */}
+      {editingMeetingParticipants && (
+        <div className="fixed inset-0 bg-mck-navy/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-lg mck-card shadow-2xl max-h-[80vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6 pb-4 border-b border-mck-border">
+              <h3 className="text-lg font-serif font-bold text-mck-navy">编辑与会人员</h3>
+              <button onClick={() => setEditingMeetingParticipants(null)} className="text-mck-navy/40 hover:text-mck-navy">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              {personnelList.length > 0 ? (
+                personnelList.map(person => (
+                  <div
+                    key={person.id}
+                    className={cn(
+                      "flex items-center gap-3 p-3 rounded-lg transition-colors",
+                      editingMeetingParticipants.participants.includes(person.id)
+                        ? "bg-mck-blue/10 border border-mck-blue/30"
+                        : "bg-mck-bg/50 hover:bg-mck-bg"
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={editingMeetingParticipants.participants.includes(person.id)}
+                      onChange={() => toggleEditParticipant(person.id)}
+                      className="w-4 h-4 accent-mck-blue flex-shrink-0"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-mck-navy">{person.name}</span>
+                        {person.isShareholder ? (
+                          <span className="text-[10px] bg-orange-100 px-1.5 py-0.5 rounded text-orange-700 font-bold flex-shrink-0">股东 {person.shareholding}%</span>
+                        ) : (
+                          <span className={cn(
+                            "text-[10px] px-1.5 py-0.5 rounded flex-shrink-0",
+                            person.organization === "董事会" ? "bg-purple-100 text-purple-700" :
+                            person.organization === "监事会" ? "bg-teal-100 text-teal-700" :
+                            "bg-blue-100 text-blue-700"
+                          )}>
+                            {person.role}
+                          </span>
+                        )}
+                      </div>
+                      {person.email && (
+                        <span className="text-[10px] text-mck-navy/40">{person.email}</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <button
+                        onClick={() => onNavigate?.("documents")}
+                        className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-mck-navy/60 hover:text-mck-blue border border-mck-border/50 hover:border-mck-blue/50 rounded transition-colors"
+                        title="编辑通知邮件"
+                      >
+                        <Mail size={12} />
+                        <span className="hidden sm:inline">编辑通知</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          setPendingSingleNotify({ name: person.name, email: person.id });
+                          setShowSingleNotifyConfirm(true);
+                        }}
+                        className={cn(
+                          "flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded transition-colors",
+                          sentPersonnelIds.has(person.id)
+                            ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                            : "text-white bg-mck-blue/80 hover:bg-mck-blue"
+                        )}
+                        title="发送通知"
+                        disabled={sentPersonnelIds.has(person.id)}
+                      >
+                        {sentPersonnelIds.has(person.id) ? (
+                          <Check size={12} />
+                        ) : (
+                          <Send size={12} />
+                        )}
+                        <span className="hidden sm:inline">
+                          {sentPersonnelIds.has(person.id) ? "已发送" : "发送"}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-8 text-mck-navy/40">
+                  <Users size={32} className="mx-auto mb-2" />
+                  <p className="text-sm">暂无人员数据</p>
+                </div>
+              )}
+            </div>
+
+            {/* 其余全体股东 */}
+            <div className="mt-2 flex items-center justify-between px-3 py-2.5 bg-mck-blue/5 rounded-lg border border-mck-blue/20 hover:border-mck-blue/40 transition-colors">
+              <div className="flex items-center gap-3 flex-1 min-w-0">
+                <input
+                  type="checkbox"
+                  checked={sendMailToAllOthers}
+                  onChange={(e) => setSendMailToAllOthers(e.target.checked)}
+                  className="w-4 h-4 accent-mck-blue flex-shrink-0"
+                />
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                  <span className="text-sm font-medium text-mck-navy">其余全体股东</span>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button
+                    onClick={() => onNavigate?.("documents")}
+                    className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-mck-navy/60 hover:text-mck-blue border border-mck-border/50 hover:border-mck-blue/50 rounded transition-colors"
+                    title="编辑通知邮件"
+                  >
+                    <Mail size={12} />
+                    <span className="hidden sm:inline">编辑通知</span>
+                  </button>
+                  <button
+                    onClick={() => setShowMailAllConfirm(true)}
+                    className={cn(
+                      "flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded transition-colors",
+                      sentToAllOthers
+                        ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                        : "text-white bg-mck-blue/80 hover:bg-mck-blue"
+                    )}
+                    title="发送通知"
+                    disabled={sentToAllOthers}
+                  >
+                    {sentToAllOthers ? (
+                      <Check size={12} />
+                    ) : (
+                      <Send size={12} />
+                    )}
+                    <span className="hidden sm:inline">
+                      {sentToAllOthers ? "已发送" : "发送"}
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-4 mt-6 pt-4 border-t border-mck-border">
+              <button
+                onClick={() => setEditingMeetingParticipants(null)}
+                className="px-6 py-2 text-xs font-bold uppercase tracking-widest text-mck-navy/60 hover:text-mck-navy"
+              >
+                取消
+              </button>
+              <button
+                onClick={saveParticipants}
+                className="flex items-center gap-2 px-8 py-2 bg-mck-blue text-white text-xs font-bold uppercase tracking-widest hover:bg-mck-navy transition-all"
+              >
+                <Save size={16} />
+                保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 发送邮件确认弹窗 */}
+      {showEmailConfirm && pendingEmailTarget && (
+        <div className="fixed inset-0 bg-mck-navy/40 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-sm mck-card shadow-2xl">
+            <div className="p-6 text-center">
+              <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <span className="text-2xl">✉️</span>
+              </div>
+              <h3 className="text-lg font-serif font-bold text-mck-navy mb-2">确认发送邮件</h3>
+              <p className="text-sm text-mck-navy/60">
+                确定要向 <span className="font-bold">{pendingEmailTarget.name}</span> 发送会议通知邮件吗？
+              </p>
+              <p className="text-[10px] text-mck-navy/40 mt-1">{pendingEmailTarget.email}</p>
+            </div>
+            <div className="flex gap-3 p-4 border-t border-mck-border">
+              <button
+                onClick={() => { setShowEmailConfirm(false); setPendingEmailTarget(null); }}
+                className="flex-1 px-4 py-2 text-xs font-bold uppercase tracking-widest text-mck-navy/60 hover:text-mck-navy"
+              >
+                取消
+              </button>
+              <button
+                onClick={confirmSendEmail}
+                className="flex-1 px-4 py-2 bg-mck-blue text-white text-xs font-bold uppercase tracking-widest hover:bg-mck-navy transition-all"
+              >
+                确定发送
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 发送邮件成功弹窗 */}
+      {showEmailSuccess && (
+        <div className="fixed inset-0 bg-mck-navy/40 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-sm mck-card shadow-2xl">
+            <div className="p-6 text-center">
+              <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <span className="text-2xl">✓</span>
+              </div>
+              <h3 className="text-lg font-serif font-bold text-green-600 mb-2">发送成功</h3>
+              <p className="text-sm text-mck-navy/60">
+                会议通知邮件已成功发送！
+              </p>
+            </div>
+            <div className="p-4 border-t border-mck-border">
+              <button
+                onClick={() => setShowEmailSuccess(false)}
+                className="w-full px-4 py-2 bg-green-500 text-white text-xs font-bold uppercase tracking-widest hover:bg-green-600 transition-all"
+              >
+                确定
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 一键通知全体股东确认弹窗 */}
+      {showNotifyAllConfirm && (
+        <div className="fixed inset-0 bg-mck-navy/40 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-sm mck-card shadow-2xl">
+            <div className="p-6 text-center">
+              <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <span className="text-2xl">📢</span>
+              </div>
+              <h3 className="text-lg font-serif font-bold text-mck-navy mb-2">确认通知全体股东</h3>
+              <p className="text-sm text-mck-navy/60">
+                确定要向所有股东发送会议通知吗？
+              </p>
+              <p className="text-[10px] text-purple-600 mt-2 font-bold">
+                共 {(personnelList.filter(p => p.organization === "股东")).length} 位股东
+              </p>
+            </div>
+            <div className="flex gap-3 p-4 border-t border-mck-border">
+              <button
+                onClick={() => setShowNotifyAllConfirm(false)}
+                className="flex-1 px-4 py-2 text-xs font-bold uppercase tracking-widest text-mck-navy/60 hover:text-mck-navy"
+              >
+                取消
+              </button>
+              <button
+                onClick={confirmNotifyAll}
+                className="flex-1 px-4 py-2 bg-purple-600 text-white text-xs font-bold uppercase tracking-widest hover:bg-purple-700 transition-all"
+              >
+                确定发送
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 一键通知全体股东成功弹窗 */}
+      {showNotifyAllSuccess && (
+        <div className="fixed inset-0 bg-mck-navy/40 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-sm mck-card shadow-2xl">
+            <div className="p-6 text-center">
+              <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <span className="text-2xl">✓</span>
+              </div>
+              <h3 className="text-lg font-serif font-bold text-green-600 mb-2">发送成功</h3>
+              <p className="text-sm text-mck-navy/60">
+                已成功向全体股东发送会议通知！
+              </p>
+            </div>
+            <div className="p-4 border-t border-mck-border">
+              <button
+                onClick={() => setShowNotifyAllSuccess(false)}
+                className="w-full px-4 py-2 bg-green-500 text-white text-xs font-bold uppercase tracking-widest hover:bg-green-600 transition-all"
+              >
+                确定
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 单人发送通知确认弹窗 */}
+      {showSingleNotifyConfirm && pendingSingleNotify && (
+        <div className="fixed inset-0 bg-mck-navy/40 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-sm mck-card shadow-2xl">
+            <div className="p-6 text-center">
+              <div className="w-12 h-12 bg-mck-blue/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Send size={24} className="text-mck-blue" />
+              </div>
+              <h3 className="text-lg font-serif font-bold text-mck-navy mb-2">确认发送通知</h3>
+              <p className="text-sm text-mck-navy/60">
+                确定要向 <span className="font-bold">{pendingSingleNotify.name}</span> 发送会议通知吗？
+              </p>
+              {pendingSingleNotify.email && (
+                <p className="text-[10px] text-mck-navy/40 mt-2">
+                  发送至：{pendingSingleNotify.email}
+                </p>
+              )}
+            </div>
+            <div className="flex gap-3 p-4 border-t border-mck-border">
+              <button
+                onClick={() => {
+                  setShowSingleNotifyConfirm(false);
+                  setPendingSingleNotify(null);
+                }}
+                className="flex-1 px-4 py-2 text-xs font-bold uppercase tracking-widest text-mck-navy/60 hover:text-mck-navy"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => {
+                  setShowSingleNotifyConfirm(false);
+                  if (pendingSingleNotify) {
+                    setSentPersonnelIds(prev => {
+                      const newSet = new Set(prev);
+                      newSet.add(pendingSingleNotify.email);
+                      return newSet;
+                    });
+                  }
+                  setShowSingleNotifySuccess(true);
+                  setTimeout(() => setShowSingleNotifySuccess(false), 2000);
+                }}
+                className="flex-1 px-4 py-2 bg-mck-blue text-white text-xs font-bold uppercase tracking-widest hover:bg-mck-navy transition-all"
+              >
+                确认发送
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 单人发送通知成功弹窗 */}
+      {showSingleNotifySuccess && (
+        <div className="fixed inset-0 bg-transparent z-[60] flex items-center justify-center pointer-events-none">
+          <div
+            className="bg-gray-700 text-white px-6 py-3 rounded-lg shadow-lg"
+            style={{ animation: "fadeInOut 2s ease-in-out forwards" }}
+          >
+            <style>{`
+              @keyframes fadeInOut {
+                0% { opacity: 0; transform: translateY(10px); }
+                15% { opacity: 1; transform: translateY(0); }
+                85% { opacity: 1; transform: translateY(0); }
+                100% { opacity: 0; transform: translateY(-10px); }
+              }
+            `}</style>
+            <div className="flex items-center gap-2">
+              <Check size={16} className="text-green-400" />
+              <span className="text-sm font-medium">已发送</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 向其余全体股东发送邮件确认弹窗 */}
+      {showMailAllConfirm && (
+        <div className="fixed inset-0 bg-mck-navy/40 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-sm mck-card shadow-2xl">
+            <div className="p-6 text-center">
+              <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <span className="text-2xl">📧</span>
+              </div>
+              <h3 className="text-lg font-serif font-bold text-mck-navy mb-2">确认发送邮件</h3>
+              <p className="text-sm text-mck-navy/60">
+                确定要向其余全体股东发送会议通知邮件吗？
+              </p>
+            </div>
+            <div className="p-4 border-t border-mck-border flex gap-3">
+              <button
+                onClick={() => setShowMailAllConfirm(false)}
+                className="flex-1 px-4 py-2 text-xs font-bold uppercase tracking-widest text-mck-navy/60 border border-mck-border hover:bg-mck-navy/5 transition-all"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => {
+                  setShowMailAllConfirm(false);
+                  setSentToAllOthers(true);
+                  setShowMailAllSuccess(true);
+                  setTimeout(() => setShowMailAllSuccess(false), 2000);
+                }}
+                className="flex-1 px-4 py-2 bg-mck-blue text-white text-xs font-bold uppercase tracking-widest hover:bg-mck-navy transition-all"
+              >
+                确认发送
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 向其余全体股东发送邮件成功弹窗 */}
+      {showMailAllSuccess && (
+        <div className="fixed inset-0 bg-transparent z-[60] flex items-center justify-center pointer-events-none">
+          <div
+            className="bg-gray-700 text-white px-6 py-3 rounded-lg shadow-lg"
+            style={{ animation: "fadeInOut 2s ease-in-out forwards" }}
+          >
+            <style>{`
+              @keyframes fadeInOut {
+                0% { opacity: 0; transform: translateY(10px); }
+                15% { opacity: 1; transform: translateY(0); }
+                85% { opacity: 1; transform: translateY(0); }
+                100% { opacity: 0; transform: translateY(-10px); }
+              }
+            `}</style>
+            <div className="flex items-center gap-2">
+              <Check size={16} className="text-green-400" />
+              <span className="text-sm font-medium">已发送</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
