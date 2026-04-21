@@ -45,6 +45,19 @@ interface GeneratedDocument {
   date: string;
   content?: string;
   formData?: any;
+  // 会议纪要导入专用字段
+  isImportedMinutes?: boolean;
+  sourceRecordId?: string;
+}
+
+// 导入的会议纪要记录类型
+interface ImportedMinutesRecord {
+  id: string;
+  title: string;
+  date: string;
+  content: string;
+  sourceRecordId: string;
+  lastModified: string;
 }
 
 // 邮件文档类型
@@ -1527,6 +1540,134 @@ export const DocumentCenter: React.FC<DocumentCenterProps> = ({ meetingId, editE
     };
   }, []);
 
+  // 监听会议纪要导入事件
+  useEffect(() => {
+    const handleMinutesImported = (event: CustomEvent<ImportedMinutesRecord>) => {
+      const importedRecord = event.detail;
+
+      // 创建导入的文书记录
+      const newDoc: GeneratedDocument = {
+        id: `minutes-imported-${Date.now()}`,
+        name: importedRecord.title,
+        type: 'minutes',
+        typeName: '会议纪要',
+        meetingTitle: importedRecord.title,
+        meetingType: 'shareholder',
+        level1Category: 'meeting',
+        level2Category: 'shareholder',
+        date: importedRecord.date,
+        content: importedRecord.content,
+        isImportedMinutes: true,
+        sourceRecordId: importedRecord.sourceRecordId,
+      };
+
+      // 添加到文书列表
+      setGeneratedDocs(prev => {
+        const updated = [newDoc, ...prev];
+        localStorage.setItem("corporate_generated_docs", JSON.stringify(updated));
+        return updated;
+      });
+
+      // 同时保存到导入会议纪要存储
+      const minutesStorageKey = "corporate_meeting_minutes_imported";
+      const saved = localStorage.getItem(minutesStorageKey);
+      const existingMinutes: ImportedMinutesRecord[] = saved ? JSON.parse(saved) : [];
+      const updatedMinutes = [importedRecord, ...existingMinutes];
+      localStorage.setItem(minutesStorageKey, JSON.stringify(updatedMinutes));
+    };
+
+    window.addEventListener('minutes-imported', handleMinutesImported as EventListener);
+    return () => {
+      window.removeEventListener('minutes-imported', handleMinutesImported as EventListener);
+    };
+  }, []);
+
+  // 监听会议纪要从RecordingWorkspace的更新
+  useEffect(() => {
+    const handleMinutesUpdate = (event: CustomEvent<{ recordId: string; content: string; title: string }>) => {
+      const { recordId, content, title } = event.detail;
+      setGeneratedDocs(prev => {
+        const updated = prev.map(doc => {
+          if (doc.sourceRecordId === recordId && doc.isImportedMinutes) {
+            return { ...doc, content, name: title, meetingTitle: title };
+          }
+          return doc;
+        });
+        localStorage.setItem("corporate_generated_docs", JSON.stringify(updated));
+        return updated;
+      });
+    };
+
+    window.addEventListener('minutes-record-updated', handleMinutesUpdate as EventListener);
+    return () => {
+      window.removeEventListener('minutes-record-updated', handleMinutesUpdate as EventListener);
+    };
+  }, []);
+
+  // 会议纪要编辑弹窗状态
+  const [showMinutesEditor, setShowMinutesEditor] = useState(false);
+  const [editingMinutes, setEditingMinutes] = useState<GeneratedDocument | null>(null);
+  const [minutesEditContent, setMinutesEditContent] = useState("");
+  const [minutesEditTitle, setMinutesEditTitle] = useState("");
+
+  // 打开会议纪要编辑器
+  const openMinutesEditor = (doc: GeneratedDocument) => {
+    setEditingMinutes(doc);
+    setMinutesEditContent(doc.content || "");
+    setMinutesEditTitle(doc.name || doc.meetingTitle);
+    setShowMinutesEditor(true);
+  };
+
+  // 保存会议纪要编辑
+  const saveMinutesEdit = () => {
+    if (!editingMinutes) return;
+
+    // 更新文书列表
+    setGeneratedDocs(prev => {
+      const updated = prev.map(doc => {
+        if (doc.id === editingMinutes.id) {
+          return {
+            ...doc,
+            content: minutesEditContent,
+            name: minutesEditTitle,
+            meetingTitle: minutesEditTitle,
+          };
+        }
+        return doc;
+      });
+      localStorage.setItem("corporate_generated_docs", JSON.stringify(updated));
+      return updated;
+    });
+
+    // 同步更新RecordingWorkspace中的记录
+    if (editingMinutes.sourceRecordId) {
+      window.dispatchEvent(new CustomEvent('minutes-document-center-update', {
+        detail: {
+          recordId: editingMinutes.sourceRecordId,
+          content: minutesEditContent,
+          title: minutesEditTitle,
+        }
+      }));
+
+      // 同时更新导入会议纪要存储
+      const minutesStorageKey = "corporate_meeting_minutes_imported";
+      const saved = localStorage.getItem(minutesStorageKey);
+      if (saved) {
+        const existingMinutes: ImportedMinutesRecord[] = JSON.parse(saved);
+        const updatedMinutes = existingMinutes.map(m => {
+          if (m.sourceRecordId === editingMinutes.sourceRecordId) {
+            return { ...m, content: minutesEditContent, title: minutesEditTitle, lastModified: new Date().toISOString() };
+          }
+          return m;
+        });
+        localStorage.setItem(minutesStorageKey, JSON.stringify(updatedMinutes));
+      }
+    }
+
+    setShowMinutesEditor(false);
+    setEditingMinutes(null);
+  };
+
   const [showEmailEditor, setShowEmailEditor] = useState(false);
   const [editingEmail, setEditingEmail] = useState<EmailDocument | null>(null);
   const historyRef = useRef<HTMLDivElement>(null);
@@ -2476,6 +2617,57 @@ ${email.body}`;
         />
       )}
 
+      {/* 会议纪要编辑弹窗 */}
+      {showMinutesEditor && editingMinutes && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-4xl h-[85vh] rounded-xl shadow-2xl flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-mck-border">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-purple-100 flex items-center justify-center">
+                  <FileText size={20} className="text-purple-600" />
+                </div>
+                <div>
+                  <h3 className="font-medium text-mck-navy">编辑会议纪要</h3>
+                  <p className="text-[10px] text-mck-navy/40">文书中心 / 会议纪要</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={saveMinutesEdit}
+                  className="flex items-center gap-2 px-4 py-2 bg-mck-blue text-white text-xs font-bold hover:bg-mck-navy transition-all"
+                >
+                  <Save size={14} />
+                  保存
+                </button>
+                <button
+                  onClick={() => setShowMinutesEditor(false)}
+                  className="p-2 hover:bg-mck-bg rounded-full"
+                >
+                  <X size={20} className="text-mck-navy/60" />
+                </button>
+              </div>
+            </div>
+            <div className="px-6 py-3 border-b border-mck-border bg-mck-bg/30">
+              <input
+                type="text"
+                value={minutesEditTitle}
+                onChange={(e) => setMinutesEditTitle(e.target.value)}
+                className="w-full px-3 py-2 text-sm font-bold text-mck-navy bg-white border border-mck-border rounded-lg focus:outline-none focus:border-mck-blue"
+                placeholder="输入会议纪要标题..."
+              />
+            </div>
+            <div className="flex-1 overflow-auto p-6 bg-mck-bg/30">
+              <textarea
+                value={minutesEditContent}
+                onChange={(e) => setMinutesEditContent(e.target.value)}
+                className="w-full h-full min-h-[400px] p-4 text-sm leading-relaxed text-mck-navy/80 bg-white border border-mck-border rounded-lg resize-none focus:outline-none focus:border-mck-blue font-sans"
+                placeholder="在此编辑会议纪要内容..."
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       {showEmailEditor && editingEmail && (
         <EmailEditorModal
           email={editingEmail}
@@ -2882,8 +3074,17 @@ ${email.body}`;
                     <tbody className="divide-y divide-mck-border/30">
                       {/* 文书行 */}
                       {docs.map(doc => (
-                        <tr key={doc.id} className="hover:bg-mck-bg/30">
-                          <td className="px-3 py-1.5 text-mck-navy/60">{docTypeNames[doc.type] || doc.typeName}</td>
+                        <tr key={doc.id} className={cn("hover:bg-mck-bg/30", doc.isImportedMinutes && "bg-purple-50/30")}>
+                          <td className="px-3 py-1.5">
+                            <div className="flex items-center gap-1">
+                              {doc.isImportedMinutes && (
+                                <span className="px-1 py-0.5 bg-purple-100 text-purple-600 text-[9px] font-bold rounded">导入</span>
+                              )}
+                              <span className={doc.isImportedMinutes ? "text-purple-600" : "text-mck-navy/60"}>
+                                {docTypeNames[doc.type] || doc.typeName}
+                              </span>
+                            </div>
+                          </td>
                           <td className="px-3 py-1.5 text-mck-navy">{doc.name}</td>
                           <td className="px-3 py-1.5 text-mck-navy/40">{doc.date}</td>
                           {complianceReviewableTypes.includes(doc.type) ? (
@@ -2911,20 +3112,36 @@ ${email.body}`;
                           )}
                           <td className="px-3 py-1.5">
                             <div className="flex items-center justify-center gap-1">
-                              <button onClick={() => setPreviewDoc(doc)} className="p-1 hover:bg-mck-blue/10 rounded" title="预览">
-                                <Eye size={12} className="text-mck-navy/60" />
-                              </button>
-                              <button onClick={() => handleDownload(doc)} className="p-1 hover:bg-mck-blue/10 rounded" title="下载">
-                                <FileDown size={12} className="text-mck-blue" />
-                              </button>
-                              {complianceReviewableTypes.includes(doc.type) && (
-                                <button onClick={() => handleComplianceReview(doc)} className="p-1 hover:bg-green-50 rounded" title="合规审查">
-                                  <ShieldCheck size={12} className="text-green-600" />
-                                </button>
+                              {doc.isImportedMinutes ? (
+                                <>
+                                  <button onClick={() => openMinutesEditor(doc)} className="p-1 hover:bg-purple-50 rounded" title="编辑">
+                                    <Edit3 size={12} className="text-purple-600" />
+                                  </button>
+                                  <button onClick={() => setPreviewDoc(doc)} className="p-1 hover:bg-mck-blue/10 rounded" title="预览">
+                                    <Eye size={12} className="text-mck-navy/60" />
+                                  </button>
+                                  <button onClick={() => handleDelete(doc.id)} className="p-1 hover:bg-red-50 rounded" title="删除">
+                                    <Trash2 size={12} className="text-red-400" />
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button onClick={() => setPreviewDoc(doc)} className="p-1 hover:bg-mck-blue/10 rounded" title="预览">
+                                    <Eye size={12} className="text-mck-navy/60" />
+                                  </button>
+                                  <button onClick={() => handleDownload(doc)} className="p-1 hover:bg-mck-blue/10 rounded" title="下载">
+                                    <FileDown size={12} className="text-mck-blue" />
+                                  </button>
+                                  {complianceReviewableTypes.includes(doc.type) && (
+                                    <button onClick={() => handleComplianceReview(doc)} className="p-1 hover:bg-green-50 rounded" title="合规审查">
+                                      <ShieldCheck size={12} className="text-green-600" />
+                                    </button>
+                                  )}
+                                  <button onClick={() => handleDelete(doc.id)} className="p-1 hover:bg-red-50 rounded" title="删除">
+                                    <Trash2 size={12} className="text-red-400" />
+                                  </button>
+                                </>
                               )}
-                              <button onClick={() => handleDelete(doc.id)} className="p-1 hover:bg-red-50 rounded" title="删除">
-                                <Trash2 size={12} className="text-red-400" />
-                              </button>
                             </div>
                           </td>
                         </tr>

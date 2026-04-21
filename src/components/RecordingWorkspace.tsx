@@ -1,6 +1,16 @@
 import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
-import { FileText, Upload, Loader2, Edit3, Save, Download, Mic, Clock, Trash2, FileAudio, Type, AlignLeft, AlignCenter, AlignRight, AlignJustify, X, Maximize2 } from "lucide-react";
+import { FileText, Upload, Loader2, Edit3, Save, Download, Mic, Clock, Trash2, FileAudio, Type, AlignLeft, AlignCenter, AlignRight, AlignJustify, X, Maximize2, UploadCloud, Check, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+// 导入会议纪要记录接口
+export interface ImportedMinutesRecord {
+  id: string;
+  title: string;
+  date: string;
+  content: string;
+  sourceRecordId: string;
+  lastModified: string;
+}
 
 interface RecordingWorkspaceProps {
   meetingId?: string | null;
@@ -41,6 +51,13 @@ const mockMeetingMinutes = `会议时间：2026年3月31日 10:00
 刘监事：监事会已对该议案进行预审，认为程序符合公司章程。`;
 
 const STORAGE_KEY = "corporate_meeting_minutes_records";
+const MINUTES_IMPORT_STORAGE_KEY = "corporate_meeting_minutes_imported";
+
+// 获取导入的会议纪要历史
+const getImportedMinutesHistory = (): string[] => {
+  const saved = localStorage.getItem("corporate_meeting_titles");
+  return saved ? JSON.parse(saved) : [];
+};
 
 const fontOptions = [
   { value: "SimSun, '宋体', serif", label: "宋体" },
@@ -80,6 +97,14 @@ export const RecordingWorkspace: React.FC<RecordingWorkspaceProps> = ({ meetingI
   const previewPaperRef = useRef<HTMLDivElement>(null);
   const [paperScale, setPaperScale] = useState(1);
   const [paperNaturalSize, setPaperNaturalSize] = useState({ w: 0, h: 0 });
+
+  // 导入文书中心相关状态
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importTargetRecord, setImportTargetRecord] = useState<MeetingMinutesRecord | null>(null);
+  const [importMeetingTitle, setImportMeetingTitle] = useState("");
+  const [importMeetingHistory, setImportMeetingHistory] = useState<string[]>([]);
+  const [showHistoryDropdown, setShowHistoryDropdown] = useState(false);
+  const [showImportSuccess, setShowImportSuccess] = useState(false);
 
   const updatePaperScale = useCallback(() => {
     const vp = previewViewportRef.current;
@@ -122,6 +147,85 @@ export const RecordingWorkspace: React.FC<RecordingWorkspaceProps> = ({ meetingI
     localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
   }, [records]);
 
+  // 初始化导入历史列表
+  useEffect(() => {
+    setImportMeetingHistory(getImportedMinutesHistory());
+  }, []);
+
+  // 监听文书中心会议纪要编辑更新事件
+  useEffect(() => {
+    const handleMinutesUpdate = (event: CustomEvent<{ recordId: string; content: string; title: string }>) => {
+      const { recordId, content, title } = event.detail;
+      // 更新当前记录
+      setRecords(prev => prev.map(r => {
+        if (r.id === recordId) {
+          return { ...r, content, title };
+        }
+        return r;
+      }));
+      // 如果当前正在查看这个记录，也更新显示
+      if (currentRecord?.id === recordId) {
+        setMeetingContent(content);
+        setMeetingTitle(title);
+      }
+    };
+
+    window.addEventListener('minutes-document-center-update', handleMinutesUpdate as EventListener);
+    return () => {
+      window.removeEventListener('minutes-document-center-update', handleMinutesUpdate as EventListener);
+    };
+  }, [currentRecord]);
+
+  // 打开导入弹窗
+  const openImportModal = (record: MeetingMinutesRecord, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setImportTargetRecord(record);
+    setImportMeetingTitle(record.title);
+    setImportMeetingHistory(getImportedMinutesHistory());
+    setShowImportModal(true);
+  };
+
+  // 确认导入
+  const confirmImport = () => {
+    if (!importTargetRecord || !importMeetingTitle.trim()) return;
+
+    // 创建导入记录
+    const importedRecord: ImportedMinutesRecord = {
+      id: `imported-${Date.now()}`,
+      title: importMeetingTitle,
+      date: new Date().toISOString().split('T')[0],
+      content: importTargetRecord.content,
+      sourceRecordId: importTargetRecord.id,
+      lastModified: new Date().toISOString(),
+    };
+
+    // 保存到localStorage
+    const saved = localStorage.getItem(MINUTES_IMPORT_STORAGE_KEY);
+    const existingRecords: ImportedMinutesRecord[] = saved ? JSON.parse(saved) : [];
+    const updatedRecords = [importedRecord, ...existingRecords];
+    localStorage.setItem(MINUTES_IMPORT_STORAGE_KEY, JSON.stringify(updatedRecords));
+
+    // 同时更新会议标题历史
+    if (!importMeetingHistory.includes(importMeetingTitle)) {
+      const newHistory = [importMeetingTitle, ...importMeetingHistory].slice(0, 20);
+      localStorage.setItem("corporate_meeting_titles", JSON.stringify(newHistory));
+    }
+
+    // 派发事件通知文书中心
+    window.dispatchEvent(new CustomEvent('minutes-imported', {
+      detail: importedRecord
+    }));
+
+    // 显示成功弹窗
+    setShowImportModal(false);
+    setShowImportSuccess(true);
+
+    // 2秒后自动关闭成功弹窗
+    setTimeout(() => {
+      setShowImportSuccess(false);
+    }, 2000);
+  };
+
   const createNewRecord = () => {
     const newRecord: MeetingMinutesRecord = {
       id: Date.now().toString(),
@@ -160,6 +264,15 @@ export const RecordingWorkspace: React.FC<RecordingWorkspaceProps> = ({ meetingI
       const updatedRecord = { ...currentRecord, content: meetingContent, title: meetingTitle || currentRecord.title };
       setCurrentRecord(updatedRecord);
       setRecords(prev => prev.map(r => r.id === updatedRecord.id ? updatedRecord : r));
+
+      // 派发事件通知文书中心同步更新
+      window.dispatchEvent(new CustomEvent('minutes-record-updated', {
+        detail: {
+          recordId: currentRecord.id,
+          content: meetingContent,
+          title: meetingTitle || currentRecord.title,
+        }
+      }));
     } else {
       const newRecord: MeetingMinutesRecord = {
         id: Date.now().toString(),
@@ -525,6 +638,110 @@ export const RecordingWorkspace: React.FC<RecordingWorkspaceProps> = ({ meetingI
 
   return (
     <div className="space-y-4">
+      {/* 导入成功弹窗 */}
+      {showImportSuccess && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="bg-white rounded-2xl p-8 max-w-xs w-full mx-4 text-center shadow-2xl animate-pulse">
+            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Check size={32} className="text-green-500" />
+            </div>
+            <h3 className="text-xl font-bold text-mck-navy mb-2">导入成功</h3>
+            <p className="text-sm text-mck-navy/60">会议纪要已导入文书中心</p>
+          </div>
+        </div>
+      )}
+
+      {/* 导入确认弹窗 */}
+      {showImportModal && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="bg-white w-full max-w-md rounded-xl shadow-2xl flex flex-col">
+            {/* 标题栏 */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-mck-border">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                  <UploadCloud size={18} className="text-green-600" />
+                </div>
+                <h3 className="font-bold text-sm text-mck-navy">确认导入</h3>
+              </div>
+              <button onClick={() => setShowImportModal(false)} className="p-1 hover:bg-mck-bg rounded">
+                <X size={18} className="text-mck-navy/50" />
+              </button>
+            </div>
+
+            {/* 内容区域 */}
+            <div className="p-4 space-y-4">
+              {/* 会议名称 */}
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/60 mb-1 block">
+                  会议名称
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={importMeetingTitle}
+                    onChange={(e) => setImportMeetingTitle(e.target.value)}
+                    placeholder="输入或选择"
+                    className="w-full border border-mck-border px-3 py-2 text-sm rounded-lg focus:outline-none focus:border-green-500"
+                  />
+                  {importMeetingHistory.length > 0 && (
+                    <div className="relative">
+                      <button
+                        onClick={() => setShowHistoryDropdown(!showHistoryDropdown)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-mck-navy/40 hover:text-mck-navy"
+                      >
+                        <ChevronDown size={16} />
+                      </button>
+                      {showHistoryDropdown && (
+                        <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-mck-border rounded-lg shadow-lg z-10 max-h-40 overflow-auto">
+                          {importMeetingHistory.slice(0, 5).map((title, idx) => (
+                            <button
+                              key={idx}
+                              onClick={() => {
+                                setImportMeetingTitle(title);
+                                setShowHistoryDropdown(false);
+                              }}
+                              className="w-full px-3 py-2 text-left text-sm hover:bg-mck-bg/50 flex items-center gap-2"
+                            >
+                              <Clock size={12} className="text-mck-navy/30" />
+                              <span className="truncate">{title}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* 提示 */}
+              <div className="p-3 bg-mck-bg/50 rounded-lg border border-mck-border/50">
+                <p className="text-xs text-mck-navy/60">
+                  文件类型：<span className="font-bold text-green-600">会议纪要</span>
+                </p>
+              </div>
+            </div>
+
+            {/* 底部按钮 */}
+            <div className="flex gap-2 px-4 py-3 border-t border-mck-border">
+              <button
+                onClick={() => setShowImportModal(false)}
+                className="flex-1 px-3 py-2 text-sm font-bold text-mck-navy/60 hover:text-mck-navy border border-mck-border hover:bg-mck-bg transition-colors rounded-lg"
+              >
+                取消
+              </button>
+              <button
+                onClick={confirmImport}
+                disabled={!importMeetingTitle.trim()}
+                className="flex-1 px-3 py-2 text-sm font-bold text-white bg-green-600 hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1 rounded-lg"
+              >
+                <Check size={14} />
+                确认导入
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Expanded Panel Overlay */}
       {expandedPanel && (
         <div className="fixed inset-0 z-50 bg-white p-6 flex flex-col">
@@ -579,9 +796,14 @@ export const RecordingWorkspace: React.FC<RecordingWorkspaceProps> = ({ meetingI
                       {record.audioFileName && <p className="text-[10px] text-purple-500 truncate">🎤 {record.audioFileName}</p>}
                     </div>
                   </div>
-                  <button onClick={(e) => deleteRecord(record.id, e)} className="absolute top-2 right-2 p-1 text-mck-navy/20 hover:text-mck-red opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Trash2 size={12} />
-                  </button>
+                  <div className="absolute top-2 right-2 flex items-center gap-1">
+                    <button onClick={(e) => openImportModal(record, e)} className="p-1 text-mck-navy/20 hover:text-green-600 opacity-0 group-hover:opacity-100 transition-opacity" title="导入文书中心">
+                      <UploadCloud size={12} />
+                    </button>
+                    <button onClick={(e) => deleteRecord(record.id, e)} className="p-1 text-mck-navy/20 hover:text-mck-red opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
                 </div>
               ))
             )}
