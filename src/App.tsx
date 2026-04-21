@@ -40,11 +40,19 @@ interface MeetingReminder {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState(() => {
-    return localStorage.getItem("corporate_active_tab") || "dashboard";
+    try {
+      return localStorage.getItem("corporate_active_tab") || "dashboard";
+    } catch {
+      return "dashboard";
+    }
   });
   const [settingsSubTab, setSettingsSubTab] = useState<"account" | "system">("account");
   const [selectedMeetingId, setSelectedMeetingId] = useState<string | null>(() => {
-    return localStorage.getItem("corporate_active_meeting_id");
+    try {
+      return localStorage.getItem("corporate_active_meeting_id");
+    } catch {
+      return null;
+    }
   });
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [globalSearchQuery, setGlobalSearchQuery] = useState("");
@@ -52,9 +60,13 @@ export default function App() {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [notificationsRead, setNotificationsRead] = useState(() => {
-    const lastRead = localStorage.getItem("corporate_notifications_last_read");
-    const today = new Date().toDateString();
-    return lastRead === today;
+    try {
+      const lastRead = localStorage.getItem("corporate_notifications_last_read");
+      const today = new Date().toDateString();
+      return lastRead === today;
+    } catch {
+      return false;
+    }
   });
   const [meetingReminders, setMeetingReminders] = useState<MeetingReminder[]>([]);
   const searchRef = useRef<HTMLDivElement>(null);
@@ -135,8 +147,13 @@ export default function App() {
     today.setHours(0, 0, 0, 0);
     
     // 从 localStorage 读取会议数据
-    const savedMeetings = localStorage.getItem("corporate_meetings_list");
-    const meetings = savedMeetings ? JSON.parse(savedMeetings) : [];
+    let meetings: any[] = [];
+    try {
+      const savedMeetings = localStorage.getItem("corporate_meetings_list");
+      meetings = savedMeetings ? JSON.parse(savedMeetings) : [];
+    } catch {
+      return reminders;
+    }
     
     meetings.forEach((meeting: any) => {
       if (meeting.status === "已结束") return;
@@ -202,9 +219,9 @@ export default function App() {
     const results: SearchResult[] = [];
 
     // 搜索文书生成
-    const savedDocs = localStorage.getItem("corporate_generated_documents");
-    if (savedDocs) {
-      try {
+    try {
+      const savedDocs = localStorage.getItem("corporate_generated_documents");
+      if (savedDocs) {
         const docs = JSON.parse(savedDocs);
         docs.forEach((doc: any) => {
           if (fuzzySearch(doc.title, query) || fuzzySearch(doc.content || "", query)) {
@@ -218,13 +235,13 @@ export default function App() {
             });
           }
         });
-      } catch {}
-    }
+      }
+    } catch {}
 
     // 搜索规则文件库
-    const savedKnowledge = localStorage.getItem("corporate_knowledge_base");
-    if (savedKnowledge) {
-      try {
+    try {
+      const savedKnowledge = localStorage.getItem("corporate_knowledge_base");
+      if (savedKnowledge) {
         const knowledge = JSON.parse(savedKnowledge);
         knowledge.forEach((item: any) => {
           if (fuzzySearch(item.title, query) || fuzzySearch(item.content || "", query)) {
@@ -238,8 +255,8 @@ export default function App() {
             });
           }
         });
-      } catch {}
-    }
+      }
+    } catch {}
 
     setSearchResults(results.slice(0, 20)); // 限制显示20条
     setShowSearchResults(true);

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Settings, Shield, Cpu, Mic, Database, Save, RefreshCw, CheckCircle, AlertCircle, User, Bell, Lock } from "lucide-react";
+import { Settings, Shield, Cpu, Mic, Database, Save, RefreshCw, CheckCircle, AlertCircle, User, Bell, Lock, Brain } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface SystemSettingsProps {
@@ -14,6 +14,9 @@ interface ApiSettings {
   geminiApiKey: string;
   ragThreshold: number;
   autoSync: boolean;
+  // 腾讯元器智能体配置
+  yuanqiApiKey: string;
+  yuanqiBotId: string;
 }
 
 const defaultSettings: ApiSettings = {
@@ -23,6 +26,9 @@ const defaultSettings: ApiSettings = {
   geminiApiKey: "",
   ragThreshold: 0.75,
   autoSync: true,
+  // 腾讯元器智能体配置
+  yuanqiApiKey: "",
+  yuanqiBotId: "",
 };
 
 export const SystemSettings: React.FC<SystemSettingsProps> = ({ 
@@ -271,11 +277,46 @@ const AccountSettings: React.FC = () => {
 // 系统设置内容组件（原内容）
 const SystemSettingsContent: React.FC = () => {
   const [settings, setSettings] = useState<ApiSettings>(() => {
-    const saved = localStorage.getItem("corporate_ai_settings");
-    return saved ? JSON.parse(saved) : defaultSettings;
+    try {
+      const saved = localStorage.getItem("corporate_ai_settings");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === 'object') {
+          return { ...defaultSettings, ...parsed };
+        }
+      }
+    } catch (error) {
+      console.warn("加载设置失败，使用默认值:", error);
+      localStorage.removeItem("corporate_ai_settings");
+    }
+    return defaultSettings;
   });
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "success" | "error">("idle");
+  const [hasInitialized, setHasInitialized] = useState(false);
+  const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+  const [testMessage, setTestMessage] = useState('');
+
+  // 标记初始化完成
+  useEffect(() => {
+    setHasInitialized(true);
+  }, []);
+
+  // 自动保存：当 settings 变化时自动保存到 localStorage（带防抖）
+  useEffect(() => {
+    if (!hasInitialized) return; // 跳过首次渲染
+
+    const timer = setTimeout(() => {
+      try {
+        localStorage.setItem("corporate_ai_settings", JSON.stringify(settings));
+        setSaveStatus("success");
+      } catch (error) {
+        setSaveStatus("error");
+      }
+    }, 1000); // 延迟 1 秒保存，避免频繁写入
+
+    return () => clearTimeout(timer);
+  }, [settings, hasInitialized]);
 
   useEffect(() => {
     if (saveStatus !== "idle") {
@@ -421,6 +462,123 @@ const SystemSettingsContent: React.FC = () => {
               <p className="mt-2 text-[10px] text-mck-navy/40">
                 设置 RAG 知识库检索的相关性阈值。值越高，检索结果越精准但数量越少。
               </p>
+            </div>
+          </div>
+        </section>
+
+        {/* 腾讯元器智能体配置 */}
+        <section className="mck-card mck-card-accent-purple">
+          <div className="flex items-center gap-3 mb-8">
+            <div className="w-10 h-10 bg-purple-50 flex items-center justify-center text-purple-600">
+              <Brain size={20} />
+            </div>
+            <div>
+              <h3 className="text-lg font-serif font-bold">腾讯元器智能体</h3>
+              <p className="text-[10px] text-mck-navy/40 uppercase tracking-widest">
+                配置合规审查 AI 智能体（可选）
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/40">API ID</label>
+                <input 
+                  type="text" 
+                  value={settings.yuanqiBotId}
+                  onChange={e => setSettings({...settings, yuanqiBotId: e.target.value})}
+                  className="w-full border border-mck-border px-4 py-2 text-sm font-mono focus:outline-none focus:border-purple-500"
+                  placeholder="输入腾讯元器 API ID"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/40">API KEY</label>
+                <input 
+                  type="password" 
+                  value={settings.yuanqiApiKey}
+                  onChange={e => setSettings({...settings, yuanqiApiKey: e.target.value})}
+                  className="w-full border border-mck-border px-4 py-2 text-sm font-mono focus:outline-none focus:border-purple-500"
+                  placeholder="输入腾讯元器 API KEY"
+                />
+              </div>
+            </div>
+
+            {/* 连接测试 */}
+            <div className="flex items-center gap-4 pt-2">
+              <button
+                onClick={async () => {
+                  if (!settings.yuanqiApiKey || !settings.yuanqiBotId) {
+                    setTestStatus('error');
+                    setTestMessage('请先填写 API ID 和 API KEY');
+                    return;
+                  }
+                  setTestStatus('testing');
+                  setTestMessage('');
+                  try {
+                    const { testYuanqiConnection } = await import('../services/yuanqiApi');
+                    const result = await testYuanqiConnection({
+                      apiKey: settings.yuanqiApiKey,
+                      botId: settings.yuanqiBotId
+                    });
+                    if (result.success) {
+                      setTestStatus('success');
+                      setTestMessage(result.message);
+                    } else {
+                      setTestStatus('error');
+                      setTestMessage(result.message);
+                    }
+                  } catch (e: any) {
+                    setTestStatus('error');
+                    setTestMessage('测试失败: ' + e.message);
+                  }
+                }}
+                disabled={testStatus === 'testing'}
+                className={cn(
+                  "px-6 py-2 text-xs font-bold transition-all flex items-center gap-2",
+                  testStatus === 'success' 
+                    ? "bg-green-50 border border-green-200 text-green-700" 
+                    : testStatus === 'error'
+                      ? "bg-red-50 border border-red-200 text-red-700"
+                      : "bg-purple-50 border border-purple-200 text-purple-700 hover:bg-purple-100",
+                  testStatus === 'testing' && "opacity-60 cursor-wait"
+                )}
+              >
+                {testStatus === 'testing' && <RefreshCw size={14} className="animate-spin" />}
+                {testStatus === 'success' && <CheckCircle size={14} />}
+                {testStatus === 'error' && <AlertCircle size={14} />}
+                {testStatus === 'testing' && '测试中...'}
+                {testStatus === 'success' && '测试成功'}
+                {testStatus === 'error' && '测试失败'}
+                {testStatus === 'idle' && '测试连接'}
+              </button>
+              {/* 测试结果显示 */}
+              {testStatus !== 'idle' && (
+                <span className={cn(
+                  "text-xs",
+                  testStatus === 'success' ? "text-green-600" : "text-red-600"
+                )}>
+                  {testMessage}
+                </span>
+              )}
+            </div>
+
+            {/* 帮助提示 */}
+            <div className="p-4 bg-blue-50 border border-blue-100 flex gap-3">
+              <AlertCircle size={18} className="text-blue-600 shrink-0 mt-0.5" />
+              <div className="text-xs text-blue-800 leading-relaxed">
+                <p className="font-bold mb-1">如何获取凭证？</p>
+                <ol className="list-decimal list-inside space-y-1 ml-2">
+                  <li>访问 <a href="https://yuanqi.tencent.com" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-900">yuanqi.tencent.com</a> 并登录</li>
+                  <li>进入「我的创建」→ 选择或创建合规审查智能体</li>
+                  <li>点击智能体卡片进入详情页</li>
+                  <li>点击「发布」将智能体发布上线</li>
+                  <li>点击「调用API」→「API Key」获取凭证</li>
+                  <li>智能体详情页的 URL 中可找到 API ID（如 .../agent/agent_xxx 中的 agent_xxx 部分）</li>
+                </ol>
+                <p className="mt-2 text-[10px] italic text-blue-600">* 智能体必须已发布才能通过 API 调用</p>
+                <p className="text-[10px] italic text-blue-600">* 未配置时使用内置演示模式（仅供体验）</p>
+              </div>
             </div>
           </div>
         </section>

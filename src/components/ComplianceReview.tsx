@@ -3,6 +3,7 @@ import { ShieldCheck, Upload, FileText, Brain, AlertTriangle, CheckCircle2, X, L
 import { ComplianceIssue } from "../types";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
+import { sendComplianceReview, YuanqiConfig } from "../services/yuanqiApi";
 
 interface ReviewRecord {
   id: string;
@@ -89,12 +90,80 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
     setIsAnalyzing(true);
     
     setRecords(prev => prev.map(r => 
-      r.id === record.id ? { ...r, status: "analyzing" } : r
+      r.id === record.id ? { ...r, status: "analyzing" as const } : r
     ));
-    setActiveRecord(prev => prev?.id === record.id ? { ...prev, status: "analyzing" } : prev);
+    setActiveRecord(prev => prev?.id === record.id ? { ...prev, status: "analyzing" as const } : prev);
 
-    setTimeout(() => {
-      const thinkingProcess = `正在分析文件内容...
+    // 从 localStorage 读取腾讯元器 API 配置
+    const settingsJson = localStorage.getItem("corporate_ai_settings");
+    let apiConfig: YuanqiConfig | null = null;
+    
+    if (settingsJson) {
+      try {
+        const parsed = JSON.parse(settingsJson);
+        if (parsed.yuanqiApiKey && parsed.yuanqiBotId) {
+          apiConfig = {
+            apiKey: parsed.yuanqiApiKey,
+            botId: parsed.yuanqiBotId
+          };
+        }
+      } catch {
+        // 配置解析失败，忽略
+      }
+    }
+
+    // 有 API 配置时调用真实接口
+    if (apiConfig) {
+      try {
+        let fullText = '';
+        
+        await sendComplianceReview(apiConfig, record.content || '', {
+          onStream: (text) => {
+            fullText = text;
+            // 实时更新 UI 显示流式结果 - 同时更新 records 和 activeRecord
+            const streamingRecord: ReviewRecord = {
+              ...record,
+              status: "analyzing",
+              aiResponse: text,
+              aiThinking: '正在接收智能体响应...'
+            };
+            setActiveRecord(streamingRecord);
+            setRecords(prev => prev.map(r => r.id === record.id ? streamingRecord : r));
+          },
+          signal: AbortSignal.timeout(120000) // 2分钟超时
+        });
+
+        // 完成处理
+        const thinkingProcess = `文档类型识别完成
+正在分析法律文书...
+正在调用腾讯元器智能体进行合规审查...`;
+
+        const updatedRecord: ReviewRecord = {
+          ...record,
+          status: "completed",
+          aiThinking: thinkingProcess,
+          aiResponse: fullText || '智能体返回内容为空',
+          riskAlerts: extractRiskAlerts(fullText)
+        };
+
+        setRecords(prev => prev.map(r => r.id === record.id ? updatedRecord : r));
+        setActiveRecord(updatedRecord);
+      } catch (error: any) {
+        console.error('API 调用错误:', error);
+        const errorRecord: ReviewRecord = {
+          ...record,
+          status: "error",
+          aiResponse: `## ❌ 审查失败\n\n**错误信息**: ${error.message}\n\n**可能的解决方案**:\n1. 检查系统设置中的 API Token 和 Assistant ID 是否正确\n2. 确认智能体已发布且处于可用状态\n3. 检查网络连接是否正常\n\n请前往「系统设置」→「腾讯元器智能体」检查配置。`
+        };
+        setRecords(prev => prev.map(r => r.id === record.id ? errorRecord : r));
+        setActiveRecord(errorRecord);
+      } finally {
+        setIsAnalyzing(false);
+      }
+    } else {
+      // 无 API 配置时使用演示模式
+      setTimeout(() => {
+        const thinkingProcess = `正在分析文件内容...
 识别文档类型：会议记录
 提取关键信息：
 - 会议类型：临时股东大会
@@ -107,7 +176,7 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
 
 生成合规建议...`;
 
-      const aiResponse = `## 合规审查结果
+        const aiResponse = `## 合规审查结果
 
 ### 问题识别
 根据《中华人民共和国公司法》(2024修订) 第一百一十一条规定：
@@ -130,26 +199,48 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
 ### 操作建议
 建议立即采取补救措施，避免后续决议被质疑效力。`;
 
-      const riskAlerts = [
-        "程序性风险：通知期限不足，可能导致决议效力瑕疵",
-        "诉讼风险：股东可能以此为由提起撤销之诉",
-        "监管风险：可能被监管部门关注并要求整改"
-      ];
+        const riskAlerts = [
+          "程序性风险：通知期限不足，可能导致决议效力瑕疵",
+          "诉讼风险：股东可能以此为由提起撤销之诉",
+          "监管风险：可能被监管部门关注并要求整改"
+        ];
 
-      const updatedRecord: ReviewRecord = {
-        ...record,
-        status: "completed",
-        aiThinking: thinkingProcess,
-        aiResponse: aiResponse,
-        riskAlerts: riskAlerts
-      };
+        const updatedRecord: ReviewRecord = {
+          ...record,
+          status: "completed",
+          aiThinking: thinkingProcess,
+          aiResponse: aiResponse,
+          riskAlerts: riskAlerts
+        };
 
-      setRecords(prev => prev.map(r => 
-        r.id === record.id ? updatedRecord : r
-      ));
-      setActiveRecord(updatedRecord);
-      setIsAnalyzing(false);
-    }, 3000);
+        setRecords(prev => prev.map(r => 
+          r.id === record.id ? updatedRecord : r
+        ));
+        setActiveRecord(updatedRecord);
+        setIsAnalyzing(false);
+      }, 3000);
+    }
+  };
+
+  // 从 AI 响应中提取风险提示
+  const extractRiskAlerts = (text: string): string[] => {
+    const alerts: string[] = [];
+    
+    if (text.includes('高风险') || text.includes('🔴') || text.includes('风险等级：高')) {
+      alerts.push('程序性风险：需关注通知期限和程序合规性');
+    }
+    if (text.includes('中风险') || text.includes('⚠️') || text.includes('风险等级：中')) {
+      alerts.push('实质性风险：需审查决议内容合法性');
+    }
+    if (text.includes('建议') || text.includes('修正')) {
+      alerts.push('合规建议：请参考 AI 输出的修正方案进行处理');
+    }
+    
+    if (alerts.length === 0) {
+      alerts.push('低风险：未发现明显合规问题');
+    }
+    
+    return alerts;
   };
 
   const triggerFileUpload = () => {
