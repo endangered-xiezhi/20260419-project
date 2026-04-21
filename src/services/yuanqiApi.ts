@@ -89,6 +89,14 @@ export async function sendComplianceReview(
     throw new Error('请在系统设置中配置腾讯元器 API KEY 和 API ID');
   }
 
+  // 调试日志
+  console.log('[Yuanqi API] ===== 开始发送审查请求 =====');
+  console.log('[Yuanqi API] 目标 URL:', YUANQI_API_URL);
+  console.log('[Yuanqi API] Bot ID:', botId);
+  console.log('[Yuanqi API] API Key 存在:', !!apiKey);
+  console.log('[Yuanqi API] 内容长度:', documentContent.length, '字符');
+  console.log('[Yuanqi API] 是否流式:', !!options?.onStream);
+
   // 构建提示词
   const prompt = COMPLIANCE_REVIEW_PROMPT.replace('{content}', documentContent);
 
@@ -114,13 +122,16 @@ export async function sendComplianceReview(
 
   let response: Response;
   try {
+    console.log('[Yuanqi API] 正在发起 fetch 请求...');
     response = await fetch(YUANQI_API_URL, {
       method: 'POST',
       headers,
       body: JSON.stringify(payload),
       signal: options?.signal
     });
+    console.log('[Yuanqi API] fetch 响应状态:', response.status, response.statusText);
   } catch (error: any) {
+    console.error('[Yuanqi API] fetch 请求失败:', error.message);
     if (error.name === 'AbortError') {
       throw new Error('请求超时，请检查网络连接或智能体状态');
     }
@@ -128,6 +139,7 @@ export async function sendComplianceReview(
   }
 
   if (!response.ok) {
+    console.error('[Yuanqi API] HTTP 错误状态:', response.status);
     let errorMessage = `API 请求失败 (HTTP ${response.status})`;
     try {
       const errorData: YuanqiResponse = await response.json();
@@ -163,6 +175,7 @@ export async function sendComplianceReview(
 
   // 流式处理
   if (options?.onStream && response.body) {
+    console.log('[Yuanqi API] 开启流式响应处理');
     return handleStreamResponse(response, options.onStream);
   }
 
@@ -171,6 +184,7 @@ export async function sendComplianceReview(
   
   // 检查 API 返回的错误
   if (data.error) {
+    console.error('[Yuanqi API] AI 返回错误:', data.error);
     throw new Error(data.error.message || 'AI 处理失败');
   }
 
@@ -179,6 +193,9 @@ export async function sendComplianceReview(
   if (!content || content.trim() === '') {
     throw new Error('AI 返回内容为空，请检查智能体配置是否正确');
   }
+  
+  console.log('[Yuanqi API] 请求成功，返回内容长度:', content.length);
+  console.log('[Yuanqi API] ===== 请求完成 =====');
   
   return content;
 }

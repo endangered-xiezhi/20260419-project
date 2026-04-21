@@ -53,7 +53,34 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
         setUploadProgress(prev => Math.min(prev + 15, 90));
       }, 100);
 
-      const text = await file.text();
+      let text: string;
+      const ext = file.name.toLowerCase().slice(file.name.lastIndexOf("."));
+
+      // 二进制文件(.docx/.pdf/.doc)走服务端解析，文本文件(.txt/.md)前端直接读取
+      if ([".docx", ".doc", ".pdf"].includes(ext)) {
+        console.log('[ComplianceReview] 检测到二进制文件:', file.name, '，发送到服务端解析...');
+        
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const response = await fetch("/api/knowledge/upload", {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || "文件解析失败");
+        }
+
+        const result = await response.json();
+        text = result.data.fullContent || result.data.content;
+        console.log('[ComplianceReview] 服务端解析成功，文本长度:', text.length);
+      } else {
+        // txt/md 等文本文件前端直接读取
+        text = await file.text();
+        console.log('[ComplianceReview] 文本文件读取成功，长度:', text.length);
+      }
       
       clearInterval(progressInterval);
       setUploadProgress(100);
