@@ -12,7 +12,7 @@ interface DocumentTemplate {
 interface GeneratedDocument {
   id: string;
   name: string;
-  type: 'voting' | 'voting_stats' | 'agenda' | 'minutes' | 'notice' | 'resolution' | 'signin' | 'proxy' | 'proposal' | 'email';
+  type: 'voting' | 'voting_stats' | 'agenda' | 'minutes' | 'notice' | 'resolution' | 'signin' | 'proxy' | 'proposal' | 'email' | 'board_voting' | 'board_resolution' | 'board_minutes' | 'board_signin' | 'board_notice' | 'board_proposal';
   typeName: string;
   meetingTitle: string;
   meetingType: 'shareholder' | 'board' | 'supervisor';
@@ -130,7 +130,67 @@ interface ProposalFormData {
   proposalDate: string;
 }
 
-type FormData = VotingFormData | VotingStatsFormData | AgendaFormData | MinutesFormData | NoticeFormData | ResolutionFormData | SigninFormData | ProxyFormData | ProposalFormData;
+// 董事会议案表单
+interface BoardProposalFormData {
+  planningPeriod: string; // 战略规划期
+  planningYears: string; // 规划年限（如"未来三年"）
+  coreDirection: string; // 核心发展方向
+  companyName: string; // 公司名称
+  proposalDate: string; // 发文日期
+}
+
+// 董事会表决票表单
+interface BoardVotingFormData {
+  votingDate: string; // 表决日期
+  companyName: string; // 公司名称
+  meetingNumber: string; // 会议届次
+}
+
+// 董事会会议记录表单
+interface BoardMinutesFormData {
+  meetingDate: string; // 会议日期
+  meetingTime: string; // 会议时间
+  companyName: string; // 公司名称
+  meetingNumber: string; // 会议届次
+  attendeeNames: string; // 列席人员姓名
+  convenerName: string; // 召集人姓名
+  hostName: string; // 主持人姓名
+  recorderName: string; // 记录人姓名
+  expectedDirectors: string; // 应到董事人数
+}
+
+// 董事会决议表单
+interface BoardResolutionFormData {
+  meetingDate: string; // 会议日期
+  meetingTime: string; // 会议时间
+  companyName: string; // 公司名称
+  meetingNumber: string; // 会议届次
+  convenerHostName: string; // 召集人/主持人姓名
+  expectedDirectors: string; // 应到董事人数
+  resolutionDate: string; // 决议日期
+}
+
+// 董事会签到表表单
+interface BoardSigninFormData {
+  meetingDate: string; // 会议日期
+  companyName: string; // 公司名称
+  meetingNumber: string; // 会议届次
+  directors: { name: string; position: string }[]; // 董事列表
+}
+
+// 董事会会议通知表单
+interface BoardNoticeFormData {
+  meetingDate: string; // 会议日期
+  meetingTime: string; // 会议时间
+  companyName: string; // 公司名称
+  meetingNumber: string; // 会议届次
+  contactName: string; // 联系人姓名
+  contactPhone: string; // 联系电话
+  proposalName: string; // 审议的议案名称
+  noticeDate: string; // 通知落款日期
+}
+
+type FormData = VotingFormData | VotingStatsFormData | AgendaFormData | MinutesFormData | NoticeFormData | ResolutionFormData | SigninFormData | ProxyFormData | ProposalFormData | BoardProposalFormData | BoardVotingFormData | BoardMinutesFormData | BoardResolutionFormData | BoardSigninFormData | BoardNoticeFormData;
 
 interface DocumentCenterProps {
   meetingId?: string | null;
@@ -168,6 +228,16 @@ const shareholderTemplates: DocumentTemplate[] = [
   { id: 'signin', name: '签到表' },
   { id: 'proxy', name: '委托书' },
   { id: 'proposal', name: '议案' },
+];
+
+// 董事会议书模板
+const boardTemplates: DocumentTemplate[] = [
+  { id: 'board_proposal', name: '董事会议案' },
+  { id: 'board_voting', name: '董事会表决票' },
+  { id: 'board_minutes', name: '董事会会议记录' },
+  { id: 'board_resolution', name: '董事会决议' },
+  { id: 'board_signin', name: '董事会签到表' },
+  { id: 'board_notice', name: '董事会会议通知' },
 ];
 
 // 历史会议标题
@@ -240,6 +310,114 @@ const generateDocumentContent = (meetingTitle: string, type: string, typeName: s
     proposal: (() => {
       const data = formData as ProposalFormData;
       return `${meetingTitle}议案\n\n议案编号：${data?.proposalId || '______________'}\n议案名称：${data?.proposalName || '______________'}\n\n一、议案提出背景\n${data?.background || '（请填写议案提出背景）'}\n\n二、议案具体内容\n${data?.content || '（请填写议案具体内容）'}\n\n三、议案说明\n${data?.description || '（请填写议案说明）'}\n\n四、涉及数据\n${data?.revenue ? `营业收入：${data.revenue}万元` : ''}\n${data?.netProfit ? `净利润：${data.netProfit}万元` : ''}\n${data?.totalAssets ? `资产总额：${data.totalAssets}万元` : ''}\n${data?.totalLiabilities ? `负债总额：${data.totalLiabilities}万元` : ''}\n${data?.growthRate ? `增长率：${data.growthRate}%` : ''}\n${data?.eps ? `每股收益：${data.eps}元` : ''}\n${data?.boardMeetings ? `召开董事会次数：${data.boardMeetings}次` : ''}\n${data?.proposalCount ? `审议议案数：${data.proposalCount}项` : ''}\n${data?.supervisionOpinions ? `监事会监督意见：${data.supervisionOpinions}条` : ''}\n${data?.budgetTarget ? `预算目标数值：${data.budgetTarget}` : ''}\n${data?.auditorName ? `审计机构：${data.auditorName}` : ''}\n\n五、公司信息（议案五涉及）\n${data?.companyName ? `公司名称：${data.companyName}` : ''}\n${data?.establishedDate ? `成立日期：${data.establishedDate}` : ''}\n${data?.registeredCapital ? `注册资本：${data.registeredCapital}` : ''}\n${data?.legalRepresentative ? `法定代表人：${data.legalRepresentative}` : ''}\n${data?.businessScope ? `经营范围：${data.businessScope}` : ''}\n\n六、提案人：${data?.proposer || '______________'}\n日  期：${data?.proposalDate || '______________'}\n`;
+    })(),
+
+    // 董事会议案
+    board_proposal: (() => {
+      const data = formData as BoardProposalFormData;
+      const company = data?.companyName || '某股份有限公司';
+      return `${company}关于公司某某发展战略规划的议案
+
+各位董事：
+
+为适配行业政策导向、市场竞争新格局及技术发展新趋势，结合公司某年上半年经营实际成果与发展诉求，公司管理层牵头对现有中长期发展战略规划开展全面梳理、调研与调整，进一步明确公司未来${data?.planningYears || '___'}年内的核心发展方向、核心业务布局、阶段性战略目标及落地保障举措。
+
+本次战略规划优化调整紧扣公司核心竞争力提升，贴合市场真实需求，符合公司可持续发展战略及全体股东的根本利益，相关方案已完成前期论证。
+
+现将《公司某某发展战略规划方案》提交本次董事会审议，请予审议。
+
+${company}董事会
+${data?.proposalDate || '某年某月某日'}
+`;
+    })(),
+
+    // 董事会表决票
+    board_voting: (() => {
+      const data = formData as BoardVotingFormData;
+      const company = data?.companyName || '某股份有限公司';
+      const meetingNum = data?.meetingNumber || '第一';
+      return `${company}第${meetingNum}届董事会第三次会议表决票
+
+请根据表决意见，在对应的表决栏中用"√"表示。
+
+董事签名：________________
+表决日期：${data?.votingDate || '____年__月__日'}
+`;
+    })(),
+
+    // 董事会会议记录
+    board_minutes: (() => {
+      const data = formData as BoardMinutesFormData;
+      const company = data?.companyName || '某股份有限公司';
+      const meetingNum = data?.meetingNumber || '第一';
+      return `${company}第${meetingNum}届董事会第三次会议记录
+
+会议时间：${data?.meetingDate || '____年__月__日'} ${data?.meetingTime || '__时'}
+会议地点：公司会议室
+会议列席人员：${data?.attendeeNames || '某某某'}
+会议召集人：${data?.convenerName || '某某某'}
+会议主持人：${data?.hostName || '某某某'}
+会议记录人：${data?.recorderName || '某某某'}
+
+一、会议主持人宣布会议开始。
+
+（本页无正文）
+董事签名：________________
+`;
+    })(),
+
+    // 董事会决议
+    board_resolution: (() => {
+      const data = formData as BoardResolutionFormData;
+      const company = data?.companyName || '某股份有限公司';
+      const meetingNum = data?.meetingNumber || '第一';
+      return `${company}第${meetingNum}届董事会第三次会议决议
+
+会议时间：${data?.meetingDate || '____年__月__日'} ${data?.meetingTime || '__时'}
+召集人/主持人：${data?.convenerHostName || '某某某'}
+应到董事人数：${data?.expectedDirectors || '___'}名
+
+决议日期：${data?.resolutionDate || '____年__月__日'}
+
+出席会议董事签名：________________
+`;
+    })(),
+
+    // 董事会签到表
+    board_signin: (() => {
+      const data = formData as BoardSigninFormData;
+      const company = data?.companyName || '某股份有限公司';
+      const meetingNum = data?.meetingNumber || '第一';
+      return `${company}第${meetingNum}届董事会第三次会议签到表
+
+时间：${data?.meetingDate || '____年__月__日'}
+
+| 序号 | 姓名 | 职务 | 签名 |
+|------|-----|------|------|
+| 1 | 某某某 | 董事 | |
+| 2 | 某某某 | 董事 | |
+| 3 | 某某某 | 董事 | |
+`;
+    })(),
+
+    // 董事会会议通知
+    board_notice: (() => {
+      const data = formData as BoardNoticeFormData;
+      const company = data?.companyName || '某股份有限公司';
+      const meetingNum = data?.meetingNumber || '第一';
+      return `${company}第${meetingNum}届董事会第三次会议通知
+
+各位董事：
+
+会议时间：${data?.meetingDate || '____年__月__日'} ${data?.meetingTime || '__时'}
+联系人：${data?.contactName || '某某某'}
+联系电话：${data?.contactPhone || '***********'}
+
+审议议案：${data?.proposalName || '《关于公司中长期发展战略规划的议案》'}
+
+${company}董事会
+${data?.noticeDate || '____年__月__日'}
+`;
     })(),
   };
 
@@ -808,6 +986,347 @@ const ProposalForm: React.FC<{
   </div>
 );
 
+// 董事会议案表单
+const BoardProposalForm: React.FC<{
+  data: BoardProposalFormData;
+  onChange: (data: BoardProposalFormData) => void;
+}> = ({ data, onChange }) => (
+  <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
+    <div className="grid grid-cols-2 gap-4">
+      <FormInput
+        label="公司名称"
+        value={data.companyName}
+        onChange={(v) => onChange({ ...data, companyName: v })}
+        placeholder="如：某某股份有限公司"
+      />
+      <FormInput
+        label="战略规划期"
+        value={data.planningPeriod}
+        onChange={(v) => onChange({ ...data, planningPeriod: v })}
+        placeholder="如：2024-2026年"
+      />
+    </div>
+    <div className="grid grid-cols-2 gap-4">
+      <FormInput
+        label="规划年限"
+        value={data.planningYears}
+        onChange={(v) => onChange({ ...data, planningYears: v })}
+        placeholder="如：未来三年"
+      />
+      <FormInput
+        label="发文日期"
+        value={data.proposalDate}
+        onChange={(v) => onChange({ ...data, proposalDate: v })}
+        type="date"
+      />
+    </div>
+    <div>
+      <label className="block text-xs font-medium text-mck-navy/70 mb-1">核心发展方向</label>
+      <textarea
+        value={data.coreDirection}
+        onChange={(e) => onChange({ ...data, coreDirection: e.target.value })}
+        placeholder="请填写核心发展方向"
+        rows={3}
+        className="w-full px-3 py-2 border border-mck-border rounded-lg text-sm focus:outline-none focus:border-mck-blue resize-none"
+      />
+    </div>
+  </div>
+);
+
+// 董事会表决票表单
+const BoardVotingForm: React.FC<{
+  data: BoardVotingFormData;
+  onChange: (data: BoardVotingFormData) => void;
+}> = ({ data, onChange }) => (
+  <div className="grid grid-cols-2 gap-4">
+    <FormInput
+      label="公司名称"
+      value={data.companyName}
+      onChange={(v) => onChange({ ...data, companyName: v })}
+      placeholder="如：某某股份有限公司"
+    />
+    <FormInput
+      label="会议届次"
+      value={data.meetingNumber}
+      onChange={(v) => onChange({ ...data, meetingNumber: v })}
+      placeholder="如：第一"
+    />
+    <FormInput
+      label="表决日期"
+      value={data.votingDate}
+      onChange={(v) => onChange({ ...data, votingDate: v })}
+      type="date"
+    />
+  </div>
+);
+
+// 董事会会议记录表单
+const BoardMinutesForm: React.FC<{
+  data: BoardMinutesFormData;
+  onChange: (data: BoardMinutesFormData) => void;
+}> = ({ data, onChange }) => (
+  <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
+    <div className="grid grid-cols-2 gap-4">
+      <FormInput
+        label="公司名称"
+        value={data.companyName}
+        onChange={(v) => onChange({ ...data, companyName: v })}
+        placeholder="如：某某股份有限公司"
+      />
+      <FormInput
+        label="会议届次"
+        value={data.meetingNumber}
+        onChange={(v) => onChange({ ...data, meetingNumber: v })}
+        placeholder="如：第一"
+      />
+    </div>
+    <div className="grid grid-cols-2 gap-4">
+      <FormInput
+        label="会议日期"
+        value={data.meetingDate}
+        onChange={(v) => onChange({ ...data, meetingDate: v })}
+        type="date"
+      />
+      <FormInput
+        label="会议时间"
+        value={data.meetingTime}
+        onChange={(v) => onChange({ ...data, meetingTime: v })}
+        placeholder="如：09:00"
+      />
+    </div>
+    <div className="grid grid-cols-2 gap-4">
+      <FormInput
+        label="列席人员"
+        value={data.attendeeNames}
+        onChange={(v) => onChange({ ...data, attendeeNames: v })}
+        placeholder="请输入列席人员姓名"
+      />
+      <FormInput
+        label="召集人"
+        value={data.convenerName}
+        onChange={(v) => onChange({ ...data, convenerName: v })}
+        placeholder="请输入召集人姓名"
+      />
+    </div>
+    <div className="grid grid-cols-2 gap-4">
+      <FormInput
+        label="主持人"
+        value={data.hostName}
+        onChange={(v) => onChange({ ...data, hostName: v })}
+        placeholder="请输入主持人姓名"
+      />
+      <FormInput
+        label="记录人"
+        value={data.recorderName}
+        onChange={(v) => onChange({ ...data, recorderName: v })}
+        placeholder="请输入记录人姓名"
+      />
+    </div>
+    <FormInput
+      label="应到董事人数"
+      value={data.expectedDirectors}
+      onChange={(v) => onChange({ ...data, expectedDirectors: v })}
+      placeholder="请输入应到董事人数"
+    />
+  </div>
+);
+
+// 董事会决议表单
+const BoardResolutionForm: React.FC<{
+  data: BoardResolutionFormData;
+  onChange: (data: BoardResolutionFormData) => void;
+}> = ({ data, onChange }) => (
+  <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
+    <div className="grid grid-cols-2 gap-4">
+      <FormInput
+        label="公司名称"
+        value={data.companyName}
+        onChange={(v) => onChange({ ...data, companyName: v })}
+        placeholder="如：某某股份有限公司"
+      />
+      <FormInput
+        label="会议届次"
+        value={data.meetingNumber}
+        onChange={(v) => onChange({ ...data, meetingNumber: v })}
+        placeholder="如：第一"
+      />
+    </div>
+    <div className="grid grid-cols-2 gap-4">
+      <FormInput
+        label="会议日期"
+        value={data.meetingDate}
+        onChange={(v) => onChange({ ...data, meetingDate: v })}
+        type="date"
+      />
+      <FormInput
+        label="会议时间"
+        value={data.meetingTime}
+        onChange={(v) => onChange({ ...data, meetingTime: v })}
+        placeholder="如：09:00"
+      />
+    </div>
+    <div className="grid grid-cols-2 gap-4">
+      <FormInput
+        label="召集人/主持人"
+        value={data.convenerHostName}
+        onChange={(v) => onChange({ ...data, convenerHostName: v })}
+        placeholder="请输入召集人/主持人姓名"
+      />
+      <FormInput
+        label="应到董事人数"
+        value={data.expectedDirectors}
+        onChange={(v) => onChange({ ...data, expectedDirectors: v })}
+        placeholder="请输入应到董事人数"
+      />
+    </div>
+    <FormInput
+      label="决议日期"
+      value={data.resolutionDate}
+      onChange={(v) => onChange({ ...data, resolutionDate: v })}
+      type="date"
+    />
+  </div>
+);
+
+// 董事会签到表表单
+const BoardSigninForm: React.FC<{
+  data: BoardSigninFormData;
+  onChange: (data: BoardSigninFormData) => void;
+}> = ({ data, onChange }) => {
+  const addDirector = () => {
+    onChange({ ...data, directors: [...data.directors, { name: '', position: '董事' }] });
+  };
+  const removeDirector = (index: number) => {
+    onChange({ ...data, directors: data.directors.filter((_, i) => i !== index) });
+  };
+  const updateDirector = (index: number, field: 'name' | 'position', value: string) => {
+    const newDirectors = [...data.directors];
+    newDirectors[index] = { ...newDirectors[index], [field]: value };
+    onChange({ ...data, directors: newDirectors });
+  };
+
+  return (
+    <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
+      <div className="grid grid-cols-2 gap-4">
+        <FormInput
+          label="公司名称"
+          value={data.companyName}
+          onChange={(v) => onChange({ ...data, companyName: v })}
+          placeholder="如：某某股份有限公司"
+        />
+        <FormInput
+          label="会议届次"
+          value={data.meetingNumber}
+          onChange={(v) => onChange({ ...data, meetingNumber: v })}
+          placeholder="如：第一"
+        />
+      </div>
+      <FormInput
+        label="会议日期"
+        value={data.meetingDate}
+        onChange={(v) => onChange({ ...data, meetingDate: v })}
+        type="date"
+      />
+      <div className="border-t border-mck-border pt-4">
+        <div className="flex items-center justify-between mb-2">
+          <label className="text-xs font-medium text-mck-navy/70">董事列表</label>
+          <button
+            onClick={addDirector}
+            className="text-xs px-2 py-1 bg-mck-blue/10 text-mck-blue rounded"
+          >
+            添加董事
+          </button>
+        </div>
+        {data.directors.map((director, index) => (
+          <div key={index} className="flex items-center gap-2 mb-2 bg-mck-bg/30 p-2 rounded">
+            <input
+              value={director.name}
+              onChange={(e) => updateDirector(index, 'name', e.target.value)}
+              placeholder="姓名"
+              className="flex-1 px-2 py-1 text-xs border border-mck-border rounded"
+            />
+            <input
+              value={director.position}
+              onChange={(e) => updateDirector(index, 'position', e.target.value)}
+              placeholder="职务"
+              className="w-20 px-2 py-1 text-xs border border-mck-border rounded"
+            />
+            <button
+              onClick={() => removeDirector(index)}
+              className="p-1 text-red-400 hover:text-red-600"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// 董事会会议通知表单
+const BoardNoticeForm: React.FC<{
+  data: BoardNoticeFormData;
+  onChange: (data: BoardNoticeFormData) => void;
+}> = ({ data, onChange }) => (
+  <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
+    <div className="grid grid-cols-2 gap-4">
+      <FormInput
+        label="公司名称"
+        value={data.companyName}
+        onChange={(v) => onChange({ ...data, companyName: v })}
+        placeholder="如：某某股份有限公司"
+      />
+      <FormInput
+        label="会议届次"
+        value={data.meetingNumber}
+        onChange={(v) => onChange({ ...data, meetingNumber: v })}
+        placeholder="如：第一"
+      />
+    </div>
+    <div className="grid grid-cols-2 gap-4">
+      <FormInput
+        label="会议日期"
+        value={data.meetingDate}
+        onChange={(v) => onChange({ ...data, meetingDate: v })}
+        type="date"
+      />
+      <FormInput
+        label="会议时间"
+        value={data.meetingTime}
+        onChange={(v) => onChange({ ...data, meetingTime: v })}
+        placeholder="如：09:00"
+      />
+    </div>
+    <div className="grid grid-cols-2 gap-4">
+      <FormInput
+        label="联系人"
+        value={data.contactName}
+        onChange={(v) => onChange({ ...data, contactName: v })}
+        placeholder="请输入联系人姓名"
+      />
+      <FormInput
+        label="联系电话"
+        value={data.contactPhone}
+        onChange={(v) => onChange({ ...data, contactPhone: v })}
+        placeholder="请输入联系电话"
+      />
+    </div>
+    <FormInput
+      label="审议的议案名称"
+      value={data.proposalName}
+      onChange={(v) => onChange({ ...data, proposalName: v })}
+      placeholder="如：《关于公司中长期发展战略规划的议案》"
+    />
+    <FormInput
+      label="通知落款日期"
+      value={data.noticeDate}
+      onChange={(v) => onChange({ ...data, noticeDate: v })}
+      type="date"
+    />
+  </div>
+);
+
 // 文书表单弹窗
 const DocumentFormModal: React.FC<{
   template: DocumentTemplate;
@@ -836,6 +1355,18 @@ const DocumentFormModal: React.FC<{
         return { principalName: '', principalId: '', agentName: '', agentId: '', proxyDate: today } as ProxyFormData;
       case 'proposal':
         return { proposalId: '', proposalName: '', revenue: '', netProfit: '', totalAssets: '', totalLiabilities: '', growthRate: '', eps: '', boardMeetings: '', proposalCount: '', supervisionOpinions: '', budgetTarget: '', auditorName: '', companyName: '', establishedDate: '', registeredCapital: '', legalRepresentative: '', businessScope: '', background: '', content: '', description: '', proposer: '', proposalDate: today } as ProposalFormData;
+      case 'board_proposal':
+        return { companyName: '', planningPeriod: '', planningYears: '', coreDirection: '', proposalDate: today } as BoardProposalFormData;
+      case 'board_voting':
+        return { votingDate: today, companyName: '', meetingNumber: '' } as BoardVotingFormData;
+      case 'board_minutes':
+        return { meetingDate: today, meetingTime: '', companyName: '', meetingNumber: '', attendeeNames: '', convenerName: '', hostName: '', recorderName: '', expectedDirectors: '' } as BoardMinutesFormData;
+      case 'board_resolution':
+        return { meetingDate: today, meetingTime: '', companyName: '', meetingNumber: '', convenerHostName: '', expectedDirectors: '', resolutionDate: today } as BoardResolutionFormData;
+      case 'board_signin':
+        return { meetingDate: today, companyName: '', meetingNumber: '', directors: [{ name: '', position: '董事' }] } as BoardSigninFormData;
+      case 'board_notice':
+        return { meetingDate: today, meetingTime: '', companyName: '', meetingNumber: '', contactName: '', contactPhone: '', proposalName: '', noticeDate: today } as BoardNoticeFormData;
       default:
         return {};
     }
@@ -869,6 +1400,18 @@ const DocumentFormModal: React.FC<{
         return <ProxyForm data={formData as ProxyFormData} onChange={(d) => setFormData(d)} />;
       case 'proposal':
         return <ProposalForm data={formData as ProposalFormData} onChange={(d) => setFormData(d)} />;
+      case 'board_proposal':
+        return <BoardProposalForm data={formData as BoardProposalFormData} onChange={(d) => setFormData(d)} />;
+      case 'board_voting':
+        return <BoardVotingForm data={formData as BoardVotingFormData} onChange={(d) => setFormData(d)} />;
+      case 'board_minutes':
+        return <BoardMinutesForm data={formData as BoardMinutesFormData} onChange={(d) => setFormData(d)} />;
+      case 'board_resolution':
+        return <BoardResolutionForm data={formData as BoardResolutionFormData} onChange={(d) => setFormData(d)} />;
+      case 'board_signin':
+        return <BoardSigninForm data={formData as BoardSigninFormData} onChange={(d) => setFormData(d)} />;
+      case 'board_notice':
+        return <BoardNoticeForm data={formData as BoardNoticeFormData} onChange={(d) => setFormData(d)} />;
       default:
         return null;
     }
@@ -1025,7 +1568,7 @@ ${new Date().toLocaleDateString('zh-CN')}`,
   }, []);
 
   const handleCategorySelect = (category: 'shareholder' | 'board' | 'supervisor') => {
-    if (category === 'board' || category === 'supervisor') {
+    if (category === 'supervisor') {
       setShowComingSoon(true);
       return;
     }
@@ -1044,13 +1587,17 @@ ${new Date().toLocaleDateString('zh-CN')}`,
   const handleGenerateDocument = (content: string, formData?: any) => {
     if (!formTemplate || !meetingTitle.trim()) return;
 
+    // 根据文书模板id判断会议类型
+    const isBoardTemplate = formTemplate.id.startsWith('board_');
+    const meetingType: 'shareholder' | 'board' | 'supervisor' = isBoardTemplate ? 'board' : 'shareholder';
+
     const newDoc: GeneratedDocument = {
       id: `doc-${Date.now()}-${formTemplate.id}`,
       name: `${meetingTitle}${formTemplate.name}`,
       type: formTemplate.id as GeneratedDocument['type'],
       typeName: formTemplate.name,
       meetingTitle: meetingTitle,
-      meetingType: 'shareholder',
+      meetingType: meetingType,
       date: new Date().toLocaleDateString('zh-CN'),
       content: content,
       formData: formData
@@ -1208,6 +1755,16 @@ ${new Date().toLocaleDateString('zh-CN')}`,
         { id: 'proposal', name: '议案' },
       ];
     }
+    if (category === 'board') {
+      return [
+        { id: 'board_proposal', name: '董事会议案' },
+        { id: 'board_voting', name: '董事会表决票' },
+        { id: 'board_minutes', name: '董事会会议记录' },
+        { id: 'board_resolution', name: '董事会决议' },
+        { id: 'board_signin', name: '董事会签到表' },
+        { id: 'board_notice', name: '董事会会议通知' },
+      ];
+    }
     return [];
   };
 
@@ -1227,10 +1784,12 @@ ${new Date().toLocaleDateString('zh-CN')}`,
   // 处理会议类型变更
   const handleMeetingCategoryChange = (category: 'shareholder' | 'board' | 'supervisor' | 'other') => {
     setImportMeetingCategory(category);
-    if (category !== 'shareholder') {
-      setImportDocType(''); // 清空文书类型
+    if (category === 'shareholder') {
+      setImportDocType('agenda'); // 股东会默认选择大会议程
+    } else if (category === 'board') {
+      setImportDocType('board_notice'); // 董事会默认选择会议通知
     } else {
-      setImportDocType('agenda'); // 默认选择大会议程
+      setImportDocType(''); // 其他会议类型清空文书类型
     }
   };
 
@@ -1563,9 +2122,9 @@ ${email.body}`;
                 <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/60 mb-1 block">
                   文书类型
                 </label>
-                {importMeetingCategory === 'shareholder' ? (
+                {importMeetingCategory === 'shareholder' || importMeetingCategory === 'board' ? (
                   <div className="grid grid-cols-3 gap-1">
-                    {getDocTypesByCategory('shareholder').map(docType => (
+                    {getDocTypesByCategory(importMeetingCategory).map(docType => (
                       <button
                         key={docType.id}
                         onClick={() => setImportDocType(docType.id)}
@@ -1875,6 +2434,85 @@ ${email.body}`;
                 </h4>
                 <div className="grid grid-cols-3 gap-3">
                   {shareholderTemplates.map(template => (
+                    <button
+                      key={template.id}
+                      onClick={() => handleGenerateClick(template)}
+                      disabled={!meetingTitle.trim()}
+                      className={cn(
+                        "p-4 border rounded-lg transition-all text-center",
+                        meetingTitle.trim()
+                          ? "border-mck-border hover:border-mck-blue hover:bg-mck-blue/5 cursor-pointer"
+                          : "border-mck-border/50 bg-mck-bg/30 cursor-not-allowed opacity-50"
+                      )}
+                    >
+                      <span className="text-sm font-medium text-mck-navy">{template.name}</span>
+                    </button>
+                  ))}
+                </div>
+                {!meetingTitle.trim() && (
+                  <p className="text-xs text-mck-navy/40 mt-3 text-center">
+                    请先输入会议标题后再生成文书
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {selectedCategory === 'board' && (
+            <div className="animate-in fade-in duration-300">
+              <div className="mb-6">
+                <h4 className="text-xs font-bold uppercase tracking-widest text-mck-navy/60 mb-3">
+                  会议标题
+                </h4>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={meetingTitle}
+                    onChange={(e) => setMeetingTitle(e.target.value)}
+                    placeholder="XX公司第一届董事会第X次会议"
+                    className="w-full px-4 pr-10 py-3 border border-mck-border rounded-lg focus:outline-none focus:border-mck-blue text-sm"
+                  />
+                  {meetingHistory.length > 0 && (
+                    <>
+                      <button
+                        onClick={() => setShowHistory(!showHistory)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-mck-bg rounded"
+                        title="历史记录"
+                      >
+                        <History size={16} className="text-mck-navy/40" />
+                      </button>
+                      
+                      {showHistory && (
+                        <div 
+                          ref={historyRef}
+                          className="absolute top-full left-0 right-0 mt-1 bg-white border border-mck-border rounded-lg shadow-lg z-20 max-h-40 overflow-auto"
+                        >
+                          <div className="px-3 py-2 text-[10px] text-mck-navy/40 border-b border-mck-border">
+                            历史记录（点击选择）
+                          </div>
+                          {meetingHistory.map((title, idx) => (
+                            <button
+                              key={idx}
+                              onClick={() => handleSelectHistory(title)}
+                              className="w-full px-3 py-2 text-left text-sm hover:bg-mck-bg/50 flex items-center gap-2"
+                            >
+                              <Clock size={12} className="text-mck-navy/30" />
+                              <span className="truncate">{title}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <h4 className="text-xs font-bold uppercase tracking-widest text-mck-navy/60 mb-3">
+                  选择要生成的文书
+                </h4>
+                <div className="grid grid-cols-3 gap-3">
+                  {boardTemplates.map(template => (
                     <button
                       key={template.id}
                       onClick={() => handleGenerateClick(template)}
