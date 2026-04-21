@@ -2075,8 +2075,9 @@ ${new Date().toLocaleDateString('zh-CN')}`,
         // 保存到会议历史
         if (!meetingHistory.includes(importMeetingTitle)) {
           const newHistory = [importMeetingTitle, ...meetingHistory].slice(0, 20);
-        setMeetingHistory(newHistory);
-        localStorage.setItem("corporate_meeting_history", JSON.stringify(newHistory));
+          setMeetingHistory(newHistory);
+          localStorage.setItem("corporate_meeting_history", JSON.stringify(newHistory));
+        }
       }
 
       // 关闭弹窗并重置
