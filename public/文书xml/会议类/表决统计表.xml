@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<VoteResultStatistics>
+    <Header>
+        <Logo src="image_16e84e.png" alt="智理·三会 CORPORATE GOVERNANCE AI" align="center" />
+        <Title>***股份有限公司 ***年度股东大会表决结果统计表</Title>
+    </Header>
+    <MainBody>
+        <Statement>
+            ***股份有限公司（以下简称“公司”）***年度股东大会于****年**月**日 **时在公司会议室举行，出席会议的股东及股东代表*名，占股东总数的***%，代表股份***股，占公司有表决权股份总数的***%，符合《中华人民共和国公司法》的有关规定。本次***年度股东大会对如下议案进行了审议并进行投票表决，表决结果如下：
+        </Statement>
+        <ResultTable>
+            <HeaderRow>
+                <Column>序号</Column>
+                <Column>表决事项</Column>
+                <Column>同意</Column>
+                <Column>反对</Column>
+                <Column>弃权</Column>
+            </HeaderRow>
+            <Row>
+                <Data>1</Data>
+                <Data>《关于公司董事会 ***年度工作报告的议案》</Data>
+                <Data></Data>
+                <Data></Data>
+                <Data></Data>
+            </Row>
+            <Row>
+                <Data>2</Data>
+                <Data>《关于公司监事会 ***年度工作报告的议案》</Data>
+                <Data></Data>
+                <Data></Data>
+                <Data></Data>
+            </Row>
+            <Row>
+                <Data>3</Data>
+                <Data>《关于公司 ***年度财务决算报告的议案》</Data>
+                <Data></Data>
+                <Data></Data>
+                <Data></Data>
+            </Row>
+            <Row>
+                <Data>4</Data>
+                <Data>《关于公司 ***年度财务预算方案的议案》</Data>
+                <Data></Data>
+                <Data></Data>
+                <Data></Data>
+            </Row>
+            <Row>
+                <Data>5</Data>
+                <Data>《关于公司 ***年度财务报告的议案》</Data>
+                <Data></Data>
+                <Data></Data>
+                <Data></Data>
+            </Row>
+        </ResultTable>
+        <SignArea>
+            <Item>计票人（签名）：________________</Item>
+            <Item>监票人（签名）：________________</Item>
+        </SignArea>
+    </MainBody>
+</VoteResultStatistics>

@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ShareholderPowerOfAttorney>
+    <Header>
+        <Logo src="image_16e84e.png" alt="智理·三会 CORPORATE GOVERNANCE AI" align="center" />
+        <Title>***股份有限公司 ***年度股东大会 授权委托书</Title>
+    </Header>
+    <MainBody>
+        <Statement>
+            兹全权委托 __________ 代表本股东出席***股份有限公司 ***年度股东大会，并就以下会议议案行使表决权。
+            如本股东未作具体投票指示，被委托人有权按其自己的意思表决。
+            本授权委托书有效期限自签发之日起至本次 ***年度股东大会结束为止。
+        </Statement>
+
+        <VotingTable>
+            <HeaderRow>
+                <Column>序号</Column>
+                <Column>表决事项</Column>
+                <Column>同意</Column>
+                <Column>反对</Column>
+                <Column>弃权</Column>
+            </HeaderRow>
+            <Row>
+                <Data>1</Data>
+                <Data>《关于公司董事会 ***年度工作报告的议案》</Data>
+                <Data></Data>
+                <Data></Data>
+                <Data></Data>
+            </Row>
+            <Row>
+                <Data>2</Data>
+                <Data>《关于公司监事会 ***年度工作报告的议案》</Data>
+                <Data></Data>
+                <Data></Data>
+                <Data></Data>
+            </Row>
+            <Row>
+                <Data>3</Data>
+                <Data>《关于公司 ***年度财务决算报告的议案》</Data>
+                <Data></Data>
+                <Data></Data>
+                <Data></Data>
+            </Row>
+            <Row>
+                <Data>4</Data>
+                <Data>《关于公司 ***年度财务预算方案的议案》</Data>
+                <Data></Data>
+                <Data></Data>
+                <Data></Data>
+            </Row>
+            <Row>
+                <Data>5</Data>
+                <Data>《关于公司 ***年度财务报告的议案》</Data>
+                <Data></Data>
+                <Data></Data>
+                <Data></Data>
+            </Row>
+        </VotingTable>
+
+        <SignInfo>
+            <Item>委托人（签名/盖章）：__________________</Item>
+            <Item>委托人法定代表人/授权代表签字：__________________</Item>
+            <Item>委托人营业执照号码/身份证号码：__________________</Item>
+            <Line />
+            <Item>受托人（签名）：__________________</Item>
+            <Item>受托人身份证号码：__________________</Item>
+            <Line />
+            <Item>委托日期：____年____月____日</Item>
+        </SignInfo>
+    </MainBody>
+</ShareholderPowerOfAttorney>

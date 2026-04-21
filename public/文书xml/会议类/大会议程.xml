@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<GeneralMeetingAgenda>
+    <Header>
+        <Logo src="image_16e84e.png" alt="智理·三会 CORPORATE GOVERNANCE AI" align="center" />
+        <Title>***股份有限公司 ***年度股东大会议程</Title>
+    </Header>
+    <MainBody>
+        <Item>一、会议时间：****年**月**日 **时</Item>
+        <Item>二、会议地点：公司会议室</Item>
+        <Item>三、与会人员签到时间：****年**月**日 **时**分</Item>
+        <Item>四、召开会议：</Item>
+        <AgendaList>
+            <Step>第一项：会议主持人宣布会议开始</Step>
+            <Step>第二项：会议主持人统计并介绍参加本次会议的人员</Step>
+            <Step>第三项：会议主持人宣读有关议案</Step>
+            <Step>第四项：推举计票人和监票人</Step>
+            <Step>第五项：股东及与会人员审议、讨论议案</Step>
+            <Step>第六项：股东以记名投票方式对议案逐项进行表决</Step>
+            <Step>第七项：计票人计票，监票人监票并宣读表决结果</Step>
+            <Step>第八项：会议主持人宣读会议决议</Step>
+            <Step>第九项：各位董事签署会议决议、会议记录</Step>
+            <Step>第十项：会议主持人宣布会议结束</Step>
+        </AgendaList>
+    </MainBody>
+</GeneralMeetingAgenda>

@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<BoardBallot>
+    <Header>
+        <Logo src="image_placeholder.png" alt="智理·三会 CORPORATE GOVERNANCE AI" />
+        <Title>某股份有限公司第一届董事会第三次会议表决票</Title>
+    </Header>
+
+    <Instructions>
+        请根据表决意见，在对应的表决栏中用“√”表示；多填、不填或者填写方式不符合前述要求的表示弃权。
+    </Instructions>
+
+    <VotingTable>
+        <Row type="header">
+            <Col>序号</Col>
+            <Col>表决事项</Col>
+            <Col>同意</Col>
+            <Col>反对</Col>
+            <Col>弃权</Col>
+        </Row>
+        <Row>
+            <Col>1</Col>
+            <Col>《关于公司某某发展战略规划优化调整的议案》</Col>
+            <Col></Col>
+            <Col></Col>
+            <Col></Col>
+        </Row>
+        <Row>
+            <Col>2</Col>
+            <Col>《关于公司董事会某某年度工作报告的议案》</Col>
+            <Col></Col>
+            <Col></Col>
+            <Col></Col>
+        </Row>
+        <Row>
+            <Col>3</Col>
+            <Col>《关于公司某某业务布局升级的框架性议案》</Col>
+            <Col></Col>
+            <Col></Col>
+            <Col></Col>
+        </Row>
+        <Row>
+            <Col>4</Col>
+            <Col>《关于公司某某负责人某某年度工作报告的议案》</Col>
+            <Col></Col>
+            <Col></Col>
+            <Col></Col>
+        </Row>
+    </VotingTable>
+
+    <Footer>
+        <SignField>董事签名：________________</SignField>
+        <Date>某年某月某日</Date>
+    </Footer>
+</BoardBallot>

@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<MeetingAttendanceSheet>
+    <Header>
+        <Logo src="image_placeholder.png" alt="智理·三会 CORPORATE GOVERNANCE AI" />
+        <Title>某股份有限公司第一届董事会第三次会议签到表</Title>
+    </Header>
+
+    <MeetingInfo>
+        <Info item="时间">某年某月某日</Info>
+        <Info item="地点">公司会议室</Info>
+    </MeetingInfo>
+
+    <AttendanceTable>
+        <Row type="header">
+            <Col>序号</Col>
+            <Col>姓名</Col>
+            <Col>职务</Col>
+            <Col>签名</Col>
+        </Row>
+        <Row>
+            <Col>1</Col>
+            <Col>某某某</Col>
+            <Col>董事</Col>
+            <Col></Col>
+        </Row>
+        <Row>
+            <Col>2</Col>
+            <Col>某某某</Col>
+            <Col>董事</Col>
+            <Col></Col>
+        </Row>
+        <Row>
+            <Col>3</Col>
+            <Col>某某某</Col>
+            <Col>董事</Col>
+            <Col></Col>
+        </Row>
+        <Row>
+            <Col>4</Col>
+            <Col>某某某</Col>
+            <Col>董事</Col>
+            <Col></Col>
+        </Row>
+        <Row>
+            <Col>5</Col>
+            <Col>某某某</Col>
+            <Col>董事</Col>
+            <Col></Col>
+        </Row>
+    </AttendanceTable>
+</MeetingAttendanceSheet>

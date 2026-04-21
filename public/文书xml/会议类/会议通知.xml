@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<AnnualGeneralMeetingNotice>
+    <Header>
+        <Logo src="image_16e84e.png" alt="智理·三会 CORPORATE GOVERNANCE AI" align="center" />
+        <Title>***股份有限公司 ***年度股东大会通知</Title>
+    </Header>
+    <MainBody>
+        <Greeting>各位股东：</Greeting>
+        <Background>根据《中华人民共和国公司法》的规定，***股份有限公司（以下简称"公司"）拟定于****年**月**日召开***年度股东大会，现将有关会议事项通知如下：</Background>
+        
+        <MeetingDetails>
+            <Detail item="一">会议时间：****年**月**日 **时</Detail>
+            <Detail item="二">会议地点：公司会议室</Detail>
+            <Detail item="三">会议出席人员：公司全体股东及其代表</Detail>
+            <Detail item="四">
+                <Text>会议需要审议的议案：</Text>
+                <Agenda>
+                    <Resolution>《关于公司董事会 ***年度工作报告的议案》</Resolution>
+                    <Resolution>《关于公司监事会 ***年度工作报告的议案》</Resolution>
+                    <Resolution>《关于公司 ***年度财务决算报告的议案》</Resolution>
+                    <Resolution>《关于公司 ***年度财务预算方案的议案》</Resolution>
+                    <Resolution>《关于公司 ***年度财务报告的议案》</Resolution>
+                </Agenda>
+            </Detail>
+            <Detail item="五">
+                <Text>会议注意事项：</Text>
+                <Instruction>参加会议时，股东如为个人，请持本人身份证，其授权的代理人请持授权委托书（格式附后）和代理人身份证；股东如为法人或其他组织，股东的法定代表人请持本人身份证，或其委派的代理人请持授权委托书和代理人身份证。</Instruction>
+            </Detail>
+            <Detail item="六">
+                <Text>其他事项：</Text>
+                <OtherInfo>
+                    <Item>1、本次会议会期预计半天；</Item>
+                    <Item>2、会务联系人：***；电话：13* **** ****；邮箱：***@***.com</Item>
+                    <Item>3、全体股东均有权亲自或委托他人出席本次会议，股东委托其他人员出席会议的，被委托的人员在出席会议时应将授权委托书正本交会务人员保存；</Item>
+                    <Item>4、全体股东在收到本通知后，请按附件填写回执，并寄回公司。</Item>
+                </OtherInfo>
+            </Detail>
+        </MeetingDetails>
+        <SignOff>
+            <Issuer>***股份有限公司</Issuer>
+            <Date>****年**月**日</Date>
+        </SignOff>
+    </MainBody>
+    <Attachments>
+        <Attachment id="1">
+            <Title>附件一：***股份有限公司 ***年度股东大会授权委托书</Title>
+            <Content>
+                <Statement>兹委托 ______________ 代表本人/本单位出席***股份有限公司 ***年度股东大会，并代为行使全部议案的表决权（若仅授权表决部分议案或对议案有明确赞同、弃权或反对授权的请注明）。</Statement>
+                <Form>
+                    <Field name="委托人姓名/单位名称">__________________</Field>
+                    <Field name="委托人身份证号码/统一社会信用代码">__________________</Field>
+                    <Field name="受托人姓名">__________________</Field>
+                    <Field name="受托人身份证号码">__________________</Field>
+                </Form>
+                <VotingInstructions>
+                    <Text>委托人对列入会议议程的每一审议事项的指示：</Text>
+                    <Table>
+                        <HeaderRow>
+                            <Column>序号</Column>
+                            <Column>表决事项</Column>
+                            <Column>同意</Column>
+                            <Column>反对</Column>
+                            <Column>弃权</Column>
+                        </HeaderRow>
+                        <Row>
+                            <Data>1</Data>
+                            <Data>关于公司董事会 ***年度工作报告的议案</Data>
+                            <Data></Data>
+                            <Data></Data>
+                            <Data></Data>
+                        </Row>
+                        <Row>
+                            <Data>2</Data>
+                            <Data>关于公司监事会 ***年度工作报告的议案</Data>
+                            <Data></Data>
+                            <Data></Data>
+                            <Data></Data>
+                        </Row>
+                        <Row>
+                            <Data>3</Data>
+                            <Data>关于公司 ***年度财务决算报告的议案</Data>
+                            <Data></Data>
+                            <Data></Data>
+                            <Data></Data>
+                        </Row>
+                        <Row>
+                            <Data>4</Data>
+                            <Data>关于公司 ***年度财务预算方案的议案</Data>
+                            <Data></Data>
+                            <Data></Data>
+                            <Data></Data>
+                        </Row>
+                        <Row>
+                            <Data>5</Data>
+                            <Data>关于公司 ***年度财务报告的议案</Data>
+                            <Data></Data>
+                            <Data></Data>
+                            <Data></Data>
+                        </Row>
+                    </Table>
+                </VotingInstructions>
+                <Footer>
+                    <Note>请从上述意向中选择其一，并在相应的空格内划"√"。若委托人未作具体指示，受托人可以按自己的意思表决。</Note>
+                    <Signature>委托人签章：__________________</Signature>
+                    <Date>****年**月**日</Date>
+                </Footer>
+            </Content>
+        </Attachment>
+        <Attachment id="2">
+            <Title>附件二：***股份有限公司 ***年度股东大会通知回执单（个人股东）</Title>
+            <Content>
+                <Salutation>***股份有限公司：</Salutation>
+                <Statement>本人，______________，已收悉贵司发来的《***股份有限公司 ***年度股东大会通知》。兹确认，本人已经充分了解贵司此次股东大会的审议事项。</Statement>
+                <Form>
+                    <Field name="姓名">__________________</Field>
+                    <Field name="签字">__________________</Field>
+                    <Field name="签署日期">****年**月**日</Field>
+                </Form>
+            </Content>
+        </Attachment>
+        <Attachment id="3">
+            <Title>附件三：***股份有限公司 ***年度股东大会通知回执单（单位股东）</Title>
+            <Content>
+                <Salutation>***股份有限公司：</Salutation>
+                <Statement>本单位，______________，已收悉贵司发来的《***股份有限公司 ***年度股东大会通知》。兹确认，本单位已经充分了解贵司此次股东大会的审议事项。</Statement>
+                <Form>
+                    <Field name="单位名称">__________________</Field>
+                    <Field name="单位盖章">__________________</Field>
+                    <Field name="授权代表签字">__________________</Field>
+                    <Field name="签署日期">****年**月**日</Field>
+                </Form>
+            </Content>
+        </Attachment>
+    </Attachments>
+</AnnualGeneralMeetingNotice>

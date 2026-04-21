@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<MeetingVoteSheet>
+    <Header>
+        <Logo src="image_16e84e.png" alt="智理·三会 CORPORATE GOVERNANCE AI" align="center" />
+        <Title>***股份有限公司 ***年度股东大会会议表决票</Title>
+    </Header>
+    <MainBody>
+        <Notice>（请根据表决意见，在对应的表决栏中用“√”表示；多填、不填或者填写方式不符合前述要求的表示弃权。）</Notice>
+        <VoteTable>
+            <HeaderRow>
+                <Column>序号</Column>
+                <Column>表决事项</Column>
+                <Column>同意</Column>
+                <Column>反对</Column>
+                <Column>弃权</Column>
+            </HeaderRow>
+            <Row>
+                <Data>1</Data>
+                <Data>《关于公司董事会 ***年度工作报告的议案》</Data>
+                <Data></Data>
+                <Data></Data>
+                <Data></Data>
+            </Row>
+            <Row>
+                <Data>2</Data>
+                <Data>《关于公司监事会 ***年度工作报告的议案》</Data>
+                <Data></Data>
+                <Data></Data>
+                <Data></Data>
+            </Row>
+            <Row>
+                <Data>3</Data>
+                <Data>《关于公司 ***年度财务决算报告的议案》</Data>
+                <Data></Data>
+                <Data></Data>
+                <Data></Data>
+            </Row>
+            <Row>
+                <Data>4</Data>
+                <Data>《关于公司 ***年度财务预算方案的议案》</Data>
+                <Data></Data>
+                <Data></Data>
+                <Data></Data>
+            </Row>
+            <Row>
+                <Data>5</Data>
+                <Data>《关于公司 ***年度财务报告的议案》</Data>
+                <Data></Data>
+                <Data></Data>
+                <Data></Data>
+            </Row>
+        </VoteTable>
+        <SignArea>
+            <Item>股东或股东代表（签字）：________________</Item>
+            <Item>日期：【 】年【 】月【 】日</Item>
+        </SignArea>
+    </MainBody>
+</MeetingVoteSheet>

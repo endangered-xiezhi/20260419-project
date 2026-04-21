@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Plus, Filter, Calendar as CalendarIcon, MoreHorizontal, ChevronRight, ChevronLeft, List, X, Edit2, Users, Save, Mail, Send, Pencil, Check } from "lucide-react";
+import { Plus, Filter, Calendar as CalendarIcon, MoreHorizontal, ChevronRight, ChevronLeft, List, X, Edit2, Users, Save, Mail, Send, Pencil, Check, Trash2 } from "lucide-react";
 import { Meeting, MeetingType, Personnel } from "../types";
 import { cn } from "@/lib/utils";
 
@@ -19,14 +19,14 @@ const getPersonnelSortPriority = (p: Personnel): number => {
 
 // 会议类型门槛说明
 const meetingThresholds: Record<string, { threshold: string; description: string }> = {
-  "股东会": { threshold: "全体股东", description: "股东大会是公司的最高权力机构" },
+  "股东会": { threshold: "全体股东", description: "股东会是公司的最高权力机构" },
   "董事会": { threshold: "全体董事", description: "董事会是公司的执行机构" },
   "监事会": { threshold: "全体监事", description: "监事会是公司的监督机构" },
   "临时股东会": { threshold: "≥10%股份", description: "提议召开临时股东会/自行召集和主持" },
 };
 
 const initialMeetings: Meeting[] = [
-  { id: "1", title: "2026年第一次临时股东大会", type: "股东会", date: "2026-04-10", status: "筹备中", complianceScore: 98, notifiedDays: 11 },
+  { id: "1", title: "2026年第一次临时股东会会议", type: "股东会", date: "2026-04-10", status: "筹备中", complianceScore: 98, notifiedDays: 11 },
   { id: "2", title: "第三届董事会第十二次会议", type: "董事会", date: "2026-03-30", status: "进行中", complianceScore: 85, notifiedDays: 10 },
   { id: "3", title: "2025年度监事会工作会议", type: "监事会", date: "2026-03-15", status: "已结束", complianceScore: 100, notifiedDays: 15 },
   { id: "4", title: "关于股权激励计划的董事会专题会议", type: "董事会", date: "2026-04-20", status: "筹备中", complianceScore: 92, notifiedDays: 22 },
@@ -34,7 +34,7 @@ const initialMeetings: Meeting[] = [
 
 interface MeetingManagerProps {
   onStartMeeting?: (id: string) => void;
-  onNavigate?: (tab: string) => void;
+  onNavigate?: (tab: string, params?: any) => void;
 }
 
 // 日历组件
@@ -303,6 +303,23 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
   const [sentPersonnelIds, setSentPersonnelIds] = useState<Set<string>>(new Set());
   const [sentToAllOthers, setSentToAllOthers] = useState(false);
 
+  // 编辑会议标题状态
+  const [editingMeetingId, setEditingMeetingId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState("");
+  // 删除会议确认弹窗
+  const [deleteConfirm, setDeleteConfirm] = useState<{ meetingId: string; meetingTitle: string } | null>(null);
+
+  // 获取法务联系人名字（从人员列表中查找法务角色）
+  const getLegalContactName = (): string => {
+    const saved = localStorage.getItem("corporate_personnel_matrix");
+    if (saved) {
+      const list: Personnel[] = JSON.parse(saved);
+      const legal = list.find(p => p.role === "法务" || p.role === "法务负责人" || p.organization === "法务部");
+      if (legal) return legal.name;
+    }
+    return "公司法务部"; // 默认法务名字
+  };
+
   // 获取与会人员列表（排序：董监高在前，单一身份股东按持股比例在后）
   const personnelList: Personnel[] = useMemo(() => {
     const saved = localStorage.getItem("corporate_personnel_matrix");
@@ -409,6 +426,35 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
         : m
     ));
     setEditingMeetingParticipants(null);
+  };
+
+  // 开始编辑会议标题
+  const startEditTitle = (meeting: Meeting) => {
+    setEditingMeetingId(meeting.id);
+    setEditingTitle(meeting.title);
+  };
+
+  // 保存编辑后的会议标题
+  const saveMeetingTitle = () => {
+    if (!editingMeetingId) return;
+    setMeetings(meetings.map(m =>
+      m.id === editingMeetingId ? { ...m, title: editingTitle } : m
+    ));
+    setEditingMeetingId(null);
+    setEditingTitle("");
+  };
+
+  // 取消编辑会议标题
+  const cancelEditTitle = () => {
+    setEditingMeetingId(null);
+    setEditingTitle("");
+  };
+
+  // 删除会议
+  const deleteMeeting = () => {
+    if (!deleteConfirm) return;
+    setMeetings(meetings.filter(m => m.id !== deleteConfirm.meetingId));
+    setDeleteConfirm(null);
   };
 
   // 发送邮件通知
@@ -654,95 +700,157 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
 
       {/* 列表视图 */}
       {viewMode === "list" && (
-        <div className="flex gap-6">
-          <div className="flex-1 grid grid-cols-1 gap-4">
+        <div className="mck-card overflow-x-auto">
+          {/* 表头 */}
+          <div className="flex items-center px-4 py-3 bg-mck-bg/50 border-b border-mck-border text-[10px] font-bold uppercase tracking-widest text-mck-navy/40 min-w-max">
+            <div className="w-10 shrink-0"></div>
+            <div className="w-48 shrink-0">会议名称</div>
+            <div className="w-28 shrink-0 text-center">通知期</div>
+            <div className="w-24 shrink-0 text-center">日期</div>
+            <div className="w-20 shrink-0 text-center">状态</div>
+            <div className="w-32 shrink-0 text-center">合规指数</div>
+            <div className="w-20 shrink-0 text-center">操作</div>
+            <div className="w-8 shrink-0"></div>
+          </div>
+          
+          {/* 表格内容 */}
+          <div className="divide-y divide-mck-border">
             {calendarFiltered.length === 0 ? (
-              <div className="mck-card border-dashed">
-                <div className="h-full flex flex-col items-center justify-center text-mck-navy/20 py-12">
-                  <CalendarIcon size={48} className="mb-4 opacity-10" />
-                  <p className="text-sm font-serif italic">暂无符合条件的会议</p>
-                </div>
+              <div className="flex flex-col items-center justify-center text-mck-navy/20 py-12">
+                <CalendarIcon size={48} className="mb-4 opacity-10" />
+                <p className="text-sm font-serif italic">暂无符合条件的会议</p>
               </div>
             ) : (
               calendarFiltered.map((meeting) => (
                 <div 
                   key={meeting.id} 
                   className={cn(
-                    "mck-card group transition-all cursor-pointer",
+                    "group transition-all cursor-pointer",
                     selectedMeeting?.id === meeting.id 
-                      ? "border-mck-blue ring-1 ring-mck-blue bg-mck-blue/5" 
-                      : "hover:border-mck-blue"
+                      ? "bg-mck-blue/5" 
+                      : "hover:bg-mck-bg/30"
                   )}
                   onClick={() => setSelectedMeeting(selectedMeeting?.id === meeting.id ? null : meeting)}
                 >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-6">
-                      <div className="w-12 h-12 bg-mck-bg flex flex-col items-center justify-center text-mck-navy/40 group-hover:bg-mck-blue/10 group-hover:text-mck-blue transition-colors">
-                        <CalendarIcon size={20} />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-3 mb-1">
-                          <span className="text-[10px] font-bold uppercase px-2 py-0.5 bg-mck-bg text-mck-navy/60 flex-shrink-0 whitespace-nowrap">
-                            {meeting.type}
-                          </span>
-                          <h4 className="text-base font-serif font-bold text-mck-navy">{meeting.title}</h4>
-                        </div>
-                        <div className="flex items-center gap-4 text-[10px] text-mck-navy/40 font-mono uppercase tracking-wider">
-                          <span>日期: {meeting.date}</span>
-                          <span>•</span>
-                          <span className={cn(
-                            meeting.notifiedDays >= 10 ? "text-green-600" : "text-mck-red font-bold"
-                          )}>
-                            通知期: {meeting.notifiedDays}日
-                          </span>
-                        </div>
+                  {/* 主行 */}
+                  <div className="flex items-center px-4 py-3 min-w-max">
+                    <div className="w-10 shrink-0">
+                      <div className="w-8 h-8 bg-mck-bg flex items-center justify-center text-mck-navy/40 group-hover:bg-mck-blue/10 group-hover:text-mck-blue transition-colors rounded">
+                        <CalendarIcon size={16} />
                       </div>
                     </div>
-
-                    <div className="flex items-center gap-8">
-                      <div className="text-right">
-                        <p className="text-[10px] uppercase tracking-widest text-mck-navy/40 mb-1">合规指数</p>
-                        <div className="flex items-center gap-2">
-                          <div className="w-24 h-1.5 bg-mck-bg rounded-full overflow-hidden">
-                            <div
-                              className={cn("h-full transition-all duration-1000", meeting.complianceScore > 90 ? "bg-green-500" : "bg-mck-blue")}
-                              style={{ width: `${meeting.complianceScore}%` }}
-                            />
-                          </div>
-                          <span className="text-xs font-bold font-mono">{meeting.complianceScore}%</span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-3">
-                        <span className={cn(
-                          "text-[10px] font-bold uppercase px-3 py-1 border flex-shrink-0 whitespace-nowrap",
-                          meeting.status === "进行中" ? "bg-mck-blue text-white border-mck-blue" :
-                          meeting.status === "筹备中" ? "bg-white text-mck-navy border-mck-border" : "bg-mck-bg text-mck-navy/40 border-mck-bg"
-                        )}>
-                          {meeting.status}
-                        </span>
-                        {meeting.status === "进行中" && onStartMeeting && (
+                    
+                    {/* 会议名称 */}
+                    <div className="w-48 shrink-0 flex items-center gap-3">
+                      <span className="text-[10px] font-bold uppercase px-2 py-0.5 bg-mck-bg text-mck-navy/60 shrink-0 whitespace-nowrap">
+                        {meeting.type}
+                      </span>
+                      {editingMeetingId === meeting.id ? (
+                        <>
+                          <input
+                            type="text"
+                            value={editingTitle}
+                            onChange={(e) => setEditingTitle(e.target.value)}
+                            className="px-2 py-0.5 text-sm font-serif font-bold text-mck-navy border border-mck-blue rounded"
+                            autoFocus
+                            onClick={(e) => e.stopPropagation()}
+                          />
                           <button
-                            onClick={(e) => { e.stopPropagation(); onStartMeeting(meeting.id); }}
-                            className="px-4 py-1 bg-mck-blue text-white text-[10px] font-bold uppercase tracking-widest hover:bg-mck-navy transition-all flex-shrink-0 whitespace-nowrap"
+                            onClick={(e) => { e.stopPropagation(); saveMeetingTitle(); }}
+                            className="p-1 bg-green-500 text-white rounded hover:bg-green-600"
                           >
-                            开始会议
+                            <Check size={12} />
                           </button>
-                        )}
-                        <div className="w-8 flex-shrink-0 flex justify-center">
-                          <ChevronRight size={18} className={cn(
-                            "transition-colors",
-                            selectedMeeting?.id === meeting.id ? "text-mck-blue rotate-90" : "text-mck-navy/20 group-hover:text-mck-blue"
-                          )} />
-                        </div>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); cancelEditTitle(); }}
+                            className="p-1 bg-gray-400 text-white rounded hover:bg-gray-500"
+                          >
+                            <X size={12} />
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <h4 className="text-sm font-serif font-bold text-mck-navy truncate">{meeting.title}</h4>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); startEditTitle(meeting); }}
+                            className="p-1 text-mck-navy/30 hover:text-mck-blue transition-colors shrink-0"
+                            title="编辑标题"
+                          >
+                            <Edit2 size={12} />
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setDeleteConfirm({ meetingId: meeting.id, meetingTitle: meeting.title }); }}
+                            className="p-1 text-mck-navy/30 hover:text-mck-red transition-colors shrink-0"
+                            title="删除会议"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                    
+                    {/* 通知期 */}
+                    <div className="w-28 shrink-0 text-center">
+                      <span className={cn(
+                        "text-xs font-mono",
+                        meeting.notifiedDays >= 10 ? "text-green-600" : "text-mck-red font-bold"
+                      )}>
+                        {meeting.notifiedDays}日
+                      </span>
+                    </div>
+                    
+                    {/* 日期 */}
+                    <div className="w-24 shrink-0 text-center">
+                      <span className="text-xs font-mono text-mck-navy/60">{meeting.date}</span>
+                    </div>
+                    
+                    {/* 状态 */}
+                    <div className="w-20 shrink-0 text-center">
+                      <span className={cn(
+                        "text-[10px] font-bold uppercase px-2 py-0.5",
+                        meeting.status === "进行中" ? "bg-mck-blue text-white" :
+                        meeting.status === "筹备中" ? "bg-white text-mck-navy border border-mck-border" : "bg-mck-bg text-mck-navy/40"
+                      )}>
+                        {meeting.status}
+                      </span>
+                    </div>
+                    
+                    {/* 合规指数 */}
+                    <div className="w-32 shrink-0 flex items-center justify-center gap-2">
+                      <div className="w-20 h-1.5 bg-mck-bg rounded-full overflow-hidden">
+                        <div
+                          className={cn("h-full transition-all duration-1000", meeting.complianceScore > 90 ? "bg-green-500" : "bg-mck-blue")}
+                          style={{ width: `${meeting.complianceScore}%` }}
+                        />
                       </div>
+                      <span className="text-xs font-bold font-mono">{meeting.complianceScore}%</span>
+                    </div>
+                    
+                    {/* 操作 */}
+                    <div className="w-20 shrink-0 flex items-center justify-center gap-1">
+                      {meeting.status === "进行中" && onStartMeeting && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onStartMeeting(meeting.id); }}
+                          className="px-2 py-0.5 bg-mck-blue text-white text-[10px] font-bold hover:bg-mck-navy transition-all"
+                        >
+                          开始
+                        </button>
+                      )}
+                    </div>
+                    
+                    {/* 展开箭头 */}
+                    <div className="w-8 shrink-0 flex items-center justify-center">
+                      <ChevronRight size={16} className={cn(
+                        "transition-all",
+                        selectedMeeting?.id === meeting.id ? "text-mck-blue rotate-90" : "text-mck-navy/20"
+                      )} />
                     </div>
                   </div>
 
                   {/* 展开的详情 */}
                   {selectedMeeting?.id === meeting.id && (
-                    <div className="mt-4 pt-4 border-t border-mck-border">
-                      <div className="grid grid-cols-2 gap-4 mb-4">
+                    <div className="px-4 pb-4 pt-2 border-t border-mck-border/50 overflow-x-auto">
+                      <div className="flex gap-4 mb-4 min-w-max">
                         <div>
                           <p className="text-[10px] uppercase tracking-widest text-mck-navy/40 mb-1">会议类型</p>
                           <p className="text-sm font-medium">{meeting.type}</p>
@@ -791,14 +899,13 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
                                   {person.shareholding && (
                                     <span className="text-orange-600 font-bold">{person.shareholding}%</span>
                                   )}
-                                  {person.email && (
-                                    <button
-                                      onClick={(e) => { e.stopPropagation(); sendEmailNotification(person); }}
-                                      className="ml-1 hover:text-mck-navy"
-                                      title="发送邮件通知"
+                                  {person.email && sentPersonnelIds.has(person.id) && (
+                                    <span
+                                      className="ml-1 text-green-500"
+                                      title="已发送邮件通知"
                                     >
                                       ✉️
-                                    </button>
+                                    </span>
                                   )}
                                 </div>
                               );
@@ -814,23 +921,18 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
                             onClick={(e) => { e.stopPropagation(); notifyAllShareholders(); }}
                             className="mt-3 flex items-center gap-2 px-4 py-2 bg-purple-600 text-white text-[10px] font-bold hover:bg-purple-700 transition-all rounded"
                           >
-                            📢 一键通知全体股东
+                            一键通知全体股东
                           </button>
                         )}
                       </div>
 
                       <div className="flex gap-3">
                         <button 
-                          onClick={() => onNavigate && onNavigate("documents")}
+                          onClick={() => onNavigate && onNavigate("documents", { meetingId: meeting.id, meetingTitle: meeting.title })}
                           className="flex-1 px-4 py-2 bg-mck-blue text-white text-xs font-bold uppercase tracking-widest hover:bg-mck-navy transition-all"
                         >
-                          编辑会议
+                          查看会议文件
                         </button>
-                        {meeting.status === "筹备中" && (
-                          <button className="flex-1 px-4 py-2 bg-white text-mck-navy text-xs font-bold uppercase tracking-widest border border-mck-border hover:bg-mck-bg transition-all">
-                            查看通知书
-                          </button>
-                        )}
                       </div>
                     </div>
                   )}
@@ -951,7 +1053,21 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
                       <button
-                        onClick={() => onNavigate?.("documents")}
+                        onClick={() => {
+                          const meeting = meetings.find(m => m.id === editingMeetingParticipants?.meetingId);
+                          onNavigate?.("documents", {
+                            editEmailFor: {
+                              meetingId: editingMeetingParticipants?.meetingId || '',
+                              meetingTitle: meeting?.title || '',
+                              recipientName: person.name,
+                              recipientEmail: person.email || '',
+                              senderName: getLegalContactName(),
+                              meetingDate: meeting?.date || '',
+                              meetingTime: meeting?.time || '',
+                              meetingLocation: meeting?.location || '公司会议室'
+                            }
+                          });
+                        }}
                         className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-mck-navy/60 hover:text-mck-blue border border-mck-border/50 hover:border-mck-blue/50 rounded transition-colors"
                         title="编辑通知邮件"
                       >
@@ -1006,7 +1122,21 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   <button
-                    onClick={() => onNavigate?.("documents")}
+                    onClick={() => {
+                      const meeting = meetings.find(m => m.id === editingMeetingParticipants?.meetingId);
+                      onNavigate?.("documents", {
+                        editEmailFor: {
+                          meetingId: editingMeetingParticipants?.meetingId || '',
+                          meetingTitle: meeting?.title || '',
+                          recipientName: '股东您好',
+                          recipientEmail: '',
+                          senderName: getLegalContactName(),
+                          meetingDate: meeting?.date || '',
+                          meetingTime: meeting?.time || '',
+                          meetingLocation: meeting?.location || '公司会议室'
+                        }
+                      });
+                    }}
                     className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-mck-navy/60 hover:text-mck-blue border border-mck-border/50 hover:border-mck-blue/50 rounded transition-colors"
                     title="编辑通知邮件"
                   >
@@ -1299,6 +1429,38 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
             <div className="flex items-center gap-2">
               <Check size={16} className="text-green-400" />
               <span className="text-sm font-medium">已发送</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 删除会议确认弹窗 */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 bg-mck-navy/40 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-sm mck-card shadow-2xl">
+            <div className="p-6 text-center">
+              <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Trash2 size={24} className="text-mck-red" />
+              </div>
+              <h3 className="text-lg font-serif font-bold text-mck-navy mb-2">确认删除会议</h3>
+              <p className="text-sm text-mck-navy/60">
+                确定要删除会议 <span className="font-bold">"{deleteConfirm.meetingTitle}"</span> 吗？
+              </p>
+              <p className="text-[10px] text-mck-red mt-2">此操作不可撤销</p>
+            </div>
+            <div className="flex gap-3 p-4 border-t border-mck-border">
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                className="flex-1 px-4 py-2 text-xs font-bold uppercase tracking-widest text-mck-navy/60 border border-mck-border hover:bg-mck-navy/5 transition-all"
+              >
+                取消
+              </button>
+              <button
+                onClick={deleteMeeting}
+                className="flex-1 px-4 py-2 bg-mck-red text-white text-xs font-bold uppercase tracking-widest hover:bg-red-700 transition-all"
+              >
+                确认删除
+              </button>
             </div>
           </div>
         </div>

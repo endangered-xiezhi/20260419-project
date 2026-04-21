@@ -1,11 +1,11 @@
 import React, { useState, useMemo } from "react";
 import { StatCard } from "./StatCard";
 import { Meeting } from "../types";
-import { Clock, Calendar as CalendarIcon, ChevronRight, ChevronLeft, List, X, CheckCircle2, AlertCircle } from "lucide-react";
+import { Clock, Calendar as CalendarIcon, ChevronRight, ChevronLeft, List, X, CheckCircle2, AlertCircle, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const initialMeetings: Meeting[] = [
-  { id: "1", title: "2026年第一次临时股东大会", type: "股东会", date: "2026-04-10", status: "筹备中", complianceScore: 98, notifiedDays: 11 },
+  { id: "1", title: "2026年第一次临时股东会会议", type: "股东会", date: "2026-04-10", status: "筹备中", complianceScore: 98, notifiedDays: 11 },
   { id: "2", title: "第三届董事会第十二次会议", type: "董事会", date: "2026-03-30", status: "进行中", complianceScore: 85, notifiedDays: 10 },
   { id: "3", title: "2025年度监事会工作会议", type: "监事会", date: "2026-03-15", status: "已结束", complianceScore: 100, notifiedDays: 15 },
   { id: "4", title: "关于股权激励计划的董事会专题会议", type: "董事会", date: "2026-04-20", status: "筹备中", complianceScore: 92, notifiedDays: 22 },
@@ -14,6 +14,7 @@ const initialMeetings: Meeting[] = [
 interface DashboardProps {
   onNavigate: (tab: string) => void;
   onStartMeeting?: (id: string) => void;
+  complianceWarningCount?: number;
 }
 
 // 日历组件
@@ -235,7 +236,7 @@ function DayPanel({
                 onClick={() => onNavigate("meetings")}
                 className="w-full text-[10px] font-bold uppercase tracking-widest text-mck-blue hover:text-mck-navy transition-colors py-1 border-t border-mck-border pt-2"
               >
-                查看详情 →
+                会议管理 →
               </button>
             </div>
           ))
@@ -245,7 +246,7 @@ function DayPanel({
   );
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, complianceWarningCount = 0 }) => {
   const [meetings] = useState<Meeting[]>(() => {
     const saved = localStorage.getItem("corporate_meetings_list");
     return saved ? JSON.parse(saved) : initialMeetings;
@@ -259,6 +260,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     setSelectedDate(date);
     setShowDayPanel(true);
   };
+
+  // 获取与会人员数量
+  const personnelCount = React.useMemo(() => {
+    const saved = localStorage.getItem("corporate_personnel_matrix");
+    return saved ? JSON.parse(saved).length : 0;
+  }, []);
 
   // 统计数据
   const activeMeetings = meetings.filter((m) => m.status === "筹备中" || m.status === "进行中").length;
@@ -290,7 +297,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
                 <div className="text-[10px] uppercase tracking-widest text-mck-navy/40 font-bold whitespace-nowrap">待办会议</div>
               </div>
             </div>
-            <div className="text-[10px] text-green-600 font-bold mt-2 whitespace-nowrap">查看全部 →</div>
+            <div className="text-[10px] text-mck-blue font-bold mt-2 whitespace-nowrap">会议管理 →</div>
           </div>
         </button>
 
@@ -313,38 +320,47 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
         </button>
 
         <button
-          onClick={() => onNavigate("compliance")}
+          onClick={() => onNavigate("documents")}
           className="w-full text-left group cursor-pointer"
         >
-          <div className="mck-card mck-card-accent-red group-hover:shadow-md transition-all p-4">
+          <div className={cn(
+            "mck-card group-hover:shadow-md transition-all p-4",
+            complianceWarningCount > 0 ? "mck-card-accent-red" : ""
+          )}>
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-red-50 rounded-xl flex items-center justify-center group-hover:bg-red-100 transition-colors shrink-0">
-                <AlertCircle size={20} className="text-mck-red" />
+              <div className={cn(
+                "w-10 h-10 rounded-xl flex items-center justify-center group-hover:shadow-sm transition-colors shrink-0",
+                complianceWarningCount > 0 ? "bg-red-50 group-hover:bg-red-100" : "bg-green-50 group-hover:bg-green-100"
+              )}>
+                <AlertCircle size={20} className={complianceWarningCount > 0 ? "text-mck-red" : "text-green-600"} />
               </div>
               <div className="min-w-0 overflow-hidden">
-                <div className="text-2xl font-serif font-bold text-mck-navy truncate">{warningCount}</div>
+                <div className="text-2xl font-serif font-bold text-mck-navy truncate">{complianceWarningCount}</div>
                 <div className="text-[10px] uppercase tracking-widest text-mck-navy/40 font-bold whitespace-nowrap">法定通知预警</div>
               </div>
             </div>
-            <div className="text-[10px] text-mck-red font-bold mt-2 whitespace-nowrap">查看详情 →</div>
+            <div className={cn(
+              "text-[10px] font-bold mt-2 whitespace-nowrap",
+              complianceWarningCount > 0 ? "text-mck-red" : "text-green-600"
+            )}>合规审查 →</div>
           </div>
         </button>
 
         <button
-          onClick={() => onNavigate("documents")}
+          onClick={() => onNavigate("users")}
           className="w-full text-left group cursor-pointer"
         >
           <div className="mck-card group-hover:border-mck-blue group-hover:shadow-md transition-all p-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-mck-blue/10 rounded-xl flex items-center justify-center group-hover:bg-mck-blue/20 transition-colors shrink-0">
-                <Clock size={20} className="text-mck-blue" />
+                <Users size={20} className="text-mck-blue" />
               </div>
               <div className="min-w-0 overflow-hidden">
-                <div className="text-2xl font-serif font-bold text-mck-navy truncate">{docRate}%</div>
-                <div className="text-[10px] uppercase tracking-widest text-mck-navy/40 font-bold whitespace-nowrap">文书生成率</div>
+                <div className="text-2xl font-serif font-bold text-mck-navy truncate">{personnelCount}</div>
+                <div className="text-[10px] uppercase tracking-widest text-mck-navy/40 font-bold whitespace-nowrap">人数</div>
               </div>
             </div>
-            <div className="text-[10px] text-green-600 font-bold mt-2 whitespace-nowrap">文书中心 →</div>
+            <div className="text-[10px] text-mck-blue font-bold mt-2 whitespace-nowrap">与会人员 →</div>
           </div>
         </button>
       </div>

@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<GeneralMeetingMinutes>
+    <Header>
+        <Logo src="image_16e84e.png" alt="智理·三会 CORPORATE GOVERNANCE AI" align="center" />
+        <Title>***股份有限公司 ***年度股东大会会议记录</Title>
+    </Header>
+    <MainBody>
+        <Item>会议时间：****年**月**日 **时</Item>
+        <Item>会议地点：公司会议室</Item>
+        <Item>大会出席及列席人员：公司全体股东或股东代表、董事、股东代表监事、职工代表监事</Item>
+        <Item>大会主持人：***</Item>
+        <Item>大会记录人：***</Item>
+        <Item>出席会议的股东及股东代表共有*名，占股东总数的***%，代表股份***股，占公司有表决权股份总数的***%，符合法定要求。会议内容如下：</Item>
+
+        <MeetingContent>
+            <Step>一、会议主持人宣布大会开始，推选计票人、监票人</Step>
+            <Step>二、会议主持人宣读会议议程并介绍会议议题</Step>
+            <Step>三、大会主持人宣读本次会议议案</Step>
+        </MeetingContent>
+
+        <ResolutionIntro>本次会议审议并以投票表决方式通过了如下议案：</ResolutionIntro>
+
+        <ResolutionList>
+            <Item>
+                <Title>（一）审议并通过了《关于公司董事会 ***年度工作报告的议案》</Title>
+                <Result>表决结果：赞成***股，占出席会议股东所持有表决权股份数的***%；反对***股；弃权***股。本议案获得通过。</Result>
+            </Item>
+            <Item>
+                <Title>（二）审议并通过了《关于公司监事会 ***年度工作报告的议案》</Title>
+                <Result>表决结果：赞成***股，占出席会议股东所持有表决权股份数的***%；反对***股；弃权***股。本议案获得通过。</Result>
+            </Item>
+            <Item>
+                <Title>（三）审议并通过了《关于公司 ***年度财务决算报告的议案》</Title>
+                <Result>表决结果：赞成***股，占出席会议股东所持有表决权股份数的***%；反对***股；弃权***股。本议案获得通过。</Result>
+            </Item>
+            <Item>
+                <Title>（四）审议并通过了《关于公司 ***年度财务预算方案的议案》</Title>
+                <Result>表决结果：赞成***股，占出席会议股东所持有表决权股份数的***%；反对***股；弃权***股。本议案获得通过。</Result>
+            </Item>
+            <Item>
+                <Title>（五）审议并通过了《关于公司 ***年度财务报告的议案》</Title>
+                <Result>表决结果：赞成***股，占出席会议股东所持有表决权股份数的***%；反对***股；弃权***股。本议案获得通过。</Result>
+            </Item>
+        </ResolutionList>
+
+        <MeetingProcess>
+            <Step>四、计票人计票，监票人监票并公布表决结果</Step>
+            <Step>五、会议主持人宣读公司***年度股东大会决议</Step>
+            <Step>六、全体股东通过上述决议，全体股东或其代表、董事、监事及本次会议记录人签署会议记录</Step>
+            <Step>七、会议主持人宣布会议结束</Step>
+        </MeetingProcess>
+
+        <NoText>（以下无正文）</NoText>
+
+        <SignaturePage>
+            <PageTitle>（本页无正文，为***股份有限公司***年度股东大会会议记录之签署页）</PageTitle>
+            <SignTable>
+                <Row>
+                    <Data>股东：</Data>
+                    <Data>股东：</Data>
+                    <Data>股东：</Data>
+                </Row>
+                <Row>
+                    <Data>***（签字）：</Data>
+                    <Data></Data>
+                    <Data></Data>
+                </Row>
+            </SignTable>
+
+            <UnitSignTable>
+                <PageTitle>（本页无正文，为***股份有限公司***年度股东大会会议记录之签署页）</PageTitle>
+                <Row>
+                    <Data>股东：</Data>
+                    <Data>股东：</Data>
+                    <Data>股东：</Data>
+                </Row>
+                <Row>
+                    <Data>***（盖章）</Data>
+                    <Data>***（盖章）</Data>
+                    <Data>***（盖章）</Data>
+                </Row>
+                <Row>
+                    <Data>授权代表（签字）：</Data>
+                    <Data></Data>
+                    <Data></Data>
+                </Row>
+            </UnitSignTable>
+
+            <DirectorSign>
+                <PageTitle>（本页无正文，为***股份有限公司***年度股东大会会议记录之签署页）</PageTitle>
+                <Row>
+                    <Data>出席董事：</Data>
+                    <Data>出席董事：</Data>
+                </Row>
+                <Row>
+                    <Data>***</Data>
+                    <Data>***</Data>
+                </Row>
+            </DirectorSign>
+
+            <SupervisorSign>
+                <PageTitle>（本页无正文，为***股份有限公司***年度股东大会会议记录之签署页）</PageTitle>
+                <Row>
+                    <Data>出席监事：</Data>
+                    <Data>出席监事：</Data>
+                </Row>
+                <Row>
+                    <Data>***</Data>
+                    <Data>***</Data>
+                </Row>
+            </SupervisorSign>
+        </SignaturePage>
+    </MainBody>
+</GeneralMeetingMinutes>

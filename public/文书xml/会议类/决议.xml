@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<GeneralMeetingResolution>
+    <Header>
+        <Logo src="image_16e84e.png" alt="智理·三会 CORPORATE GOVERNANCE AI" align="center" />
+        <Title>***股份有限公司 ***年度股东大会会议决议</Title>
+    </Header>
+    <MainBody>
+        <Statement>
+            ***股份有限公司（以下简称“公司”）***年度股东大会于****年**月**日 **时在公司会议室举行，出席会议的股东或股东代表共计*名，占股东总数的***%，代表股份***股，占公司有表决权股份总数的***%，符合《中华人民共和国公司法》的有关规定，会议合法有效。
+        </Statement>
+        <ResolutionIntro>本次会议审议并以投票表决方式通过了如下议案：</ResolutionIntro>
+
+        <ResolutionList>
+            <Item>
+                <Title>（一）审议并通过了《关于公司董事会 ***年度工作报告的议案》</Title>
+                <Result>表决结果：赞成***股，占出席会议股东所持有表决权股份数的***%；反对***股；弃权***股。本议案获得通过。</Result>
+            </Item>
+            <Item>
+                <Title>（二）审议并通过了《关于公司监事会 ***年度工作报告的议案》</Title>
+                <Result>表决结果：赞成***股，占出席会议股东所持有表决权股份数的***%；反对***股；弃权***股。本议案获得通过。</Result>
+            </Item>
+            <Item>
+                <Title>（三）审议并通过了《关于公司 ***年度财务决算报告的议案》</Title>
+                <Result>表决结果：赞成***股，占出席会议股东所持有表决权股份数的***%；反对***股；弃权***股。本议案获得通过。</Result>
+            </Item>
+            <Item>
+                <Title>（四）审议并通过了《关于公司 ***年度财务预算方案的议案》</Title>
+                <Result>表决结果：赞成***股，占出席会议股东所持有表决权股份数的***%；反对***股；弃权***股。本议案获得通过。</Result>
+            </Item>
+            <Item>
+                <Title>（五）审议并通过了《关于公司 ***年度财务报告的议案》</Title>
+                <Result>表决结果：赞成***股，占出席会议股东所持有表决权股份数的***%；反对***股；弃权***股。本议案获得通过。</Result>
+            </Item>
+        </ResolutionList>
+
+        <Conclusion>特此决议。</Conclusion>
+        <NoText>(以下无正文)</NoText>
+
+        <SignaturePage>
+            <PageTitle>（本页无正文，为***股份有限公司***年度股东大会会议决议之签署页）</PageTitle>
+            <SignTable>
+                <Row>
+                    <Data>股东：</Data>
+                    <Data>股东：</Data>
+                    <Data>股东：</Data>
+                </Row>
+                <Row>
+                    <Data>***（签字）：</Data>
+                    <Data></Data>
+                    <Data></Data>
+                </Row>
+            </SignTable>
+
+            <RepeatTable>
+                <PageTitle>（本页无正文，为***股份有限公司***年度股东大会会议决议之签署页）</PageTitle>
+                <Row>
+                    <Data>股东：</Data>
+                    <Data>股东：</Data>
+                    <Data>股东：</Data>
+                </Row>
+                <Row>
+                    <Data>***（盖章）</Data>
+                    <Data>***（盖章）</Data>
+                    <Data>***（盖章）</Data>
+                </Row>
+                <Row>
+                    <Data>授权代表（签字）：</Data>
+                    <Data></Data>
+                    <Data></Data>
+                </Row>
+            </RepeatTable>
+        </SignaturePage>
+    </MainBody>
+</GeneralMeetingResolution>

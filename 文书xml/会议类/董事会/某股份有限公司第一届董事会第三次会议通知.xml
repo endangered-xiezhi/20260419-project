@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<BoardMeetingNotice>
+    <Header>
+        <Logo src="image_placeholder.png" alt="智理·三会 CORPORATE GOVERNANCE AI" />
+        <Title>某股份有限公司第一届董事会第三次会议通知</Title>
+    </Header>
+
+    <MainBody>
+        <Greeting>各位董事：</Greeting>
+        <Background>根据《中华人民共和国公司法》等有关法律、法规及《某股份有限公司章程》的有关规定，兹定于某年某月某日召开某股份有限公司（以下简称“公司”）第一届董事会第三次会议，现将有关会议事项通知如下：</Background>
+        
+        <MeetingDetails>
+            <Detail item="一">会议时间：某年某月某日 某时</Detail>
+            <Detail item="二">会议地点：公司会议室</Detail>
+            <Detail item="三">会议形式：现场会议结合通讯方式</Detail>
+            <Detail item="四">
+                <Text>会议需要审议的议案：</Text>
+                <Agenda>
+                    <Resolution>《关于公司中长期发展战略规划的议案》</Resolution>
+                </Agenda>
+            </Detail>
+            <Detail item="五">
+                <Text>相关说明：</Text>
+                <Instruction>董事会会议应当由董事本人凭有效身份证件出席。董事因故不能亲自出席会议的，可书面委托其他董事代为出席会议，授权委托书应当载明代理人的姓名、代理事项、权限和有效期限，并由委托人签名或盖章。</Instruction>
+                <Instruction>全体董事在收到本通知后，请按附件填写回执，并寄回公司。</Instruction>
+            </Detail>
+            <Detail item="六">
+                <Text>会务联系办法：</Text>
+                <Instruction>联系人：某某某</Instruction>
+                <Instruction>联系电话：***********</Instruction>
+            </Detail>
+        </MeetingDetails>
+
+        <SignOff>
+            <Text>特此通知。</Text>
+            <Issuer>某股份有限公司董事会</Issuer>
+            <Date>某年某月某日</Date>
+        </SignOff>
+    </MainBody>
+
+    <Attachments>
+        <Attachment id="1">
+            <Title>附件：某股份有限公司第一届董事会第三次会议通知回执单</Title>
+            <Content>
+                <Salutation>某股份有限公司：</Salutation>
+                <Statement>本人已收悉贵司发来的《某股份有限公司第一届董事会第三次会议通知》，届时本人将准时参加会议。</Statement>
+                <ConfirmField>董事签名：________________</ConfirmField>
+            </Content>
+        </Attachment>
+    </Attachments>
+</BoardMeetingNotice>

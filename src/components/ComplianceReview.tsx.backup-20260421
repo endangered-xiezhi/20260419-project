@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { ShieldCheck, Upload, FileText, Brain, AlertTriangle, CheckCircle2, X, Loader2, Clock, ChevronDown, ChevronRight, Maximize2, Minimize2 } from "lucide-react";
 import { ComplianceIssue } from "../types";
 import { cn } from "@/lib/utils";
@@ -20,52 +20,9 @@ interface ReviewRecord {
 interface ComplianceReviewProps {
   meetingId?: string | null;
   onGenerateDocuments?: (id: string) => void;
-  onReviewComplete?: (docId: string, score: number, reviewRecordId: string) => void; // 审查完成回调
 }
 
-// 可拖动调整大小的分隔条组件
-interface ResizeHandleProps {
-  onMouseDown: (e: React.MouseEvent) => void;
-  direction: 'horizontal' | 'vertical';
-}
-
-const ResizeHandle: React.FC<ResizeHandleProps> = ({ onMouseDown, direction }) => {
-  const [isHovered, setIsHovered] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
-
-  return (
-    <div
-      className={cn(
-        "group select-none transition-colors z-10",
-        direction === 'horizontal' 
-          ? "w-2 cursor-col-resize hover:bg-mck-blue/20" 
-          : "h-2 cursor-row-resize hover:bg-mck-blue/20"
-      )}
-      style={{
-        backgroundColor: isDragging ? 'rgba(59, 130, 246, 0.3)' : isHovered ? 'rgba(59, 130, 246, 0.1)' : 'transparent'
-      }}
-      onMouseDown={(e) => {
-        setIsDragging(true);
-        onMouseDown(e);
-      }}
-      onMouseUp={() => setIsDragging(false)}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-    >
-      <div className={cn(
-        "flex items-center justify-center transition-opacity",
-        (isHovered || isDragging) ? "opacity-100" : "opacity-0"
-      )}>
-        <div className={cn(
-          "bg-mck-blue/50 rounded-full",
-          direction === 'horizontal' ? "w-0.5 h-8" : "h-0.5 w-8"
-        )} />
-      </div>
-    </div>
-  );
-};
-
-export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, onGenerateDocuments, onReviewComplete }) => {
+export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, onGenerateDocuments }) => {
   const [records, setRecords] = useState<ReviewRecord[]>(() => {
     const saved = localStorage.getItem("corporate_compliance_records");
     return saved ? JSON.parse(saved) : [];
@@ -78,128 +35,10 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
   const [showThinking, setShowThinking] = useState(true);
   const [expandedPanel, setExpandedPanel] = useState<"none" | "content" | "result">("none");
   const fileInputRef = useRef<HTMLInputElement>(null);
-  // 从文书中心选择文件弹窗
-  const [showDocCenterSelect, setShowDocCenterSelect] = useState(false);
-  const [docCenterDocs, setDocCenterDocs] = useState<{id: string; name: string; meetingTitle: string; content?: string}[]>([]);
-  
-  // 面板宽度状态 (百分比)
-  const [leftPanelWidth, setLeftPanelWidth] = useState(() => {
-    const saved = localStorage.getItem("compliance_left_width");
-    return saved ? parseFloat(saved) : 20; // 默认左侧20%
-  });
-  const [contentPanelWidth, setContentPanelWidth] = useState(() => {
-    const saved = localStorage.getItem("compliance_content_width");
-    return saved ? parseFloat(saved) : 30; // 默认内容区30%
-  });
-  
-  const containerRef = useRef<HTMLDivElement>(null);
-  const isDraggingRef = useRef<string | null>(null);
-  const startXRef = useRef(0);
-  const startWidthRef = useRef(0);
-
-  // 保存面板宽度到 localStorage
-  useEffect(() => {
-    localStorage.setItem("compliance_left_width", leftPanelWidth.toString());
-  }, [leftPanelWidth]);
-
-  useEffect(() => {
-    localStorage.setItem("compliance_content_width", contentPanelWidth.toString());
-  }, [contentPanelWidth]);
 
   useEffect(() => {
     localStorage.setItem("corporate_compliance_records", JSON.stringify(records));
   }, [records]);
-
-  // 处理拖动
-  const handleResizeStart = useCallback((panel: 'left' | 'content', e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    isDraggingRef.current = panel;
-    startXRef.current = e.clientX;
-    
-    if (panel === 'left') {
-      startWidthRef.current = leftPanelWidth;
-    } else {
-      startWidthRef.current = contentPanelWidth;
-    }
-
-    const handleMouseMove = (moveEvent: MouseEvent) => {
-      if (!isDraggingRef.current || !containerRef.current) return;
-      
-      const containerWidth = containerRef.current.offsetWidth;
-      const deltaX = moveEvent.clientX - startXRef.current;
-      const deltaPercent = (deltaX / containerWidth) * 100;
-
-      if (isDraggingRef.current === 'left') {
-        const newWidth = Math.max(10, Math.min(40, startWidthRef.current + deltaPercent));
-        setLeftPanelWidth(newWidth);
-      } else if (isDraggingRef.current === 'content') {
-        const newWidth = Math.max(15, Math.min(50, startWidthRef.current + deltaPercent));
-        setContentPanelWidth(newWidth);
-      }
-    };
-
-    const handleMouseUp = () => {
-      isDraggingRef.current = null;
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-  }, [leftPanelWidth, contentPanelWidth]);
-
-  // 从文书中心加载文档
-  const loadDocsFromDocCenter = () => {
-    const savedDocs = localStorage.getItem("corporate_generated_docs");
-    if (savedDocs) {
-      const docs = JSON.parse(savedDocs);
-      setDocCenterDocs(docs.map((d: any) => ({
-        id: d.id,
-        name: d.name,
-        meetingTitle: d.meetingTitle,
-        content: d.content
-      })));
-    } else {
-      setDocCenterDocs([]);
-    }
-    setShowDocCenterSelect(true);
-  };
-
-  // 选择文书中心的文档进行审查
-  const selectDocFromCenter = (doc: {id: string; name: string; meetingTitle: string; content?: string}) => {
-    if (!doc.content) {
-      setUploadError("该文档没有可审查的内容");
-      setShowDocCenterSelect(false);
-      return;
-    }
-
-    const newRecord: ReviewRecord = {
-      id: `review-${Date.now()}`,
-      fileName: doc.name,
-      fileType: doc.meetingTitle,
-      uploadTime: new Date().toISOString(),
-      status: 'pending',
-      content: doc.content,
-    };
-    
-    setRecords(prev => {
-      const updated = [newRecord, ...prev];
-      localStorage.setItem("corporate_compliance_records", JSON.stringify(updated));
-      return updated;
-    });
-    setActiveRecord(newRecord);
-    setShowDocCenterSelect(false);
-    
-    // 开始审查（传递原始文档ID以便回调）
-    setTimeout(() => {
-      startAnalysis(newRecord, doc.id);
-    }, 500);
-  };
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -217,7 +56,10 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
       let text: string;
       const ext = file.name.toLowerCase().slice(file.name.lastIndexOf("."));
 
+      // 二进制文件(.docx/.pdf/.doc)走服务端解析，文本文件(.txt/.md)前端直接读取
       if ([".docx", ".doc", ".pdf"].includes(ext)) {
+        console.log('[ComplianceReview] 检测到二进制文件:', file.name, '，发送到服务端解析...');
+        
         const formData = new FormData();
         formData.append("file", file);
 
@@ -233,8 +75,11 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
 
         const result = await response.json();
         text = result.data.fullContent || result.data.content;
+        console.log('[ComplianceReview] 服务端解析成功，文本长度:', text.length);
       } else {
+        // txt/md 等文本文件前端直接读取
         text = await file.text();
+        console.log('[ComplianceReview] 文本文件读取成功，长度:', text.length);
       }
       
       clearInterval(progressInterval);
@@ -268,25 +113,7 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
     }
   };
 
-  // 计算合规指数（基于AI审查结果：与预警成反比例）
-  // 🔴高风险 -> 30%合规指数
-  // ⚠️中风险 -> 60%合规指数
-  // ✅低风险 -> 95%合规指数
-  const calculateComplianceScore = (text: string): number => {
-    if (text.includes('🔴') || text.includes('高风险')) {
-      return 30;
-    }
-    if (text.includes('⚠️') || text.includes('中风险')) {
-      return 60;
-    }
-    if (text.includes('✅') || text.includes('低风险') || text.includes('合规')) {
-      return 95;
-    }
-    // 默认中等合规
-    return 70;
-  };
-
-  const startAnalysis = async (record: ReviewRecord, sourceDocId?: string) => {
+  const startAnalysis = async (record: ReviewRecord) => {
     setIsAnalyzing(true);
     
     setRecords(prev => prev.map(r => 
@@ -294,23 +121,33 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
     ));
     setActiveRecord(prev => prev?.id === record.id ? { ...prev, status: "analyzing" as const } : prev);
 
+    // 从 localStorage 读取腾讯元器 API 配置
     const settingsJson = localStorage.getItem("corporate_ai_settings");
+    console.log('[ComplianceReview] localStorage settingsJson:', settingsJson ? '存在' : '不存在');
+    
     let apiConfig: YuanqiConfig | null = null;
     
     if (settingsJson) {
       try {
         const parsed = JSON.parse(settingsJson);
+        console.log('[ComplianceReview] parsed settings:', parsed);
         if (parsed.yuanqiApiKey && parsed.yuanqiBotId) {
           apiConfig = {
             apiKey: parsed.yuanqiApiKey,
             botId: parsed.yuanqiBotId
           };
+          console.log('[ComplianceReview] API 配置已读取，Key 长度:', parsed.yuanqiApiKey.length);
+        } else {
+          console.log('[ComplianceReview] ⚠️ 缺少 API Key 或 Bot ID');
         }
       } catch (e) {
         console.error('[ComplianceReview] 配置解析失败:', e);
       }
+    } else {
+      console.log('[ComplianceReview] ⚠️ corporate_ai_settings 不存在于 localStorage');
     }
 
+    // 有 API 配置时调用真实接口
     if (apiConfig) {
       try {
         let fullText = '';
@@ -318,6 +155,7 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
         await sendComplianceReview(apiConfig, record.content || '', {
           onStream: (text) => {
             fullText = text;
+            // 实时更新 UI 显示流式结果 - 同时更新 records 和 activeRecord
             const streamingRecord: ReviewRecord = {
               ...record,
               status: "analyzing",
@@ -327,37 +165,30 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
             setActiveRecord(streamingRecord);
             setRecords(prev => prev.map(r => r.id === record.id ? streamingRecord : r));
           },
-          signal: AbortSignal.timeout(120000)
+          signal: AbortSignal.timeout(120000) // 2分钟超时
         });
 
+        // 完成处理
         const thinkingProcess = `文档类型识别完成
 正在分析法律文书...
 正在调用腾讯元器智能体进行合规审查...`;
-
-        const riskAlerts = extractRiskAlerts(fullText);
-        const complianceScore = calculateComplianceScore(fullText);
 
         const updatedRecord: ReviewRecord = {
           ...record,
           status: "completed",
           aiThinking: thinkingProcess,
           aiResponse: fullText || '智能体返回内容为空',
-          riskAlerts: riskAlerts
+          riskAlerts: extractRiskAlerts(fullText)
         };
 
         setRecords(prev => prev.map(r => r.id === record.id ? updatedRecord : r));
         setActiveRecord(updatedRecord);
-        
-        // 如果是来自文书中心的文档，调用回调通知文书中心
-        if (sourceDocId && onReviewComplete) {
-          onReviewComplete(sourceDocId, complianceScore, record.id);
-        }
       } catch (error: any) {
         console.error('API 调用错误:', error);
         const errorRecord: ReviewRecord = {
           ...record,
           status: "error",
-          aiResponse: `## ❌ 审查失败\n\n**错误信息**: ${error.message}\n\n请前往「系统设置」→「腾讯元器智能体」检查配置。`
+          aiResponse: `## ❌ 审查失败\n\n**错误信息**: ${error.message}\n\n**可能的解决方案**:\n1. 检查系统设置中的 API Token 和 Assistant ID 是否正确\n2. 确认智能体已发布且处于可用状态\n3. 检查网络连接是否正常\n\n请前往「系统设置」→「腾讯元器智能体」检查配置。`
         };
         setRecords(prev => prev.map(r => r.id === record.id ? errorRecord : r));
         setActiveRecord(errorRecord);
@@ -365,18 +196,18 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
         setIsAnalyzing(false);
       }
     } else {
-      // 演示模式
+      // 无 API 配置时使用演示模式
       setTimeout(() => {
         const thinkingProcess = `正在分析文件内容...
 识别文档类型：会议记录
 提取关键信息：
-- 会议类型：临时股东会
+- 会议类型：临时股东大会
 - 通知时间：2026年3月20日
 - 会议时间：2026年3月31日
 - 间隔天数：11天
 
 对照法规库检索...
-发现潜在问题：《公司法》第111条规定临时股东会应提前15日通知
+发现潜在问题：《公司法》第111条规定临时股东大会应提前15日通知
 
 生成合规建议...`;
 
@@ -384,7 +215,7 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
 
 ### 问题识别
 根据《中华人民共和国公司法》(2024修订) 第一百一十一条规定：
-> "召开临时股东会会议，应当将会议召开的时间、地点和审议的事项于会议召开十五日前通知各股东。"
+> "召开临时股东大会会议，应当将会议召开的时间、地点和审议的事项于会议召开十五日前通知各股东。"
 
 经审查，本次会议通知时间为2026年3月20日，会议召开时间为2026年3月31日，**间隔仅为11天**，未达到法定15日期限。
 
@@ -398,7 +229,7 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
 
 ### 相关法规
 - 《公司法》第111条
-- 《上市公司股东会规则》第15条
+- 《上市公司股东大会规则》第15条
 
 ### 操作建议
 建议立即采取补救措施，避免后续决议被质疑效力。`;
@@ -408,8 +239,6 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
           "诉讼风险：股东可能以此为由提起撤销之诉",
           "监管风险：可能被监管部门关注并要求整改"
         ];
-
-        const complianceScore = calculateComplianceScore(aiResponse);
 
         const updatedRecord: ReviewRecord = {
           ...record,
@@ -424,22 +253,18 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
         ));
         setActiveRecord(updatedRecord);
         setIsAnalyzing(false);
-        
-        // 如果是来自文书中心的文档，调用回调通知文书中心
-        if (sourceDocId && onReviewComplete) {
-          onReviewComplete(sourceDocId, complianceScore, record.id);
-        }
       }, 3000);
     }
   };
 
+  // 从 AI 响应中提取风险提示
   const extractRiskAlerts = (text: string): string[] => {
     const alerts: string[] = [];
     
-    if (text.includes('高风险') || text.includes('🔴')) {
+    if (text.includes('高风险') || text.includes('🔴') || text.includes('风险等级：高')) {
       alerts.push('程序性风险：需关注通知期限和程序合规性');
     }
-    if (text.includes('中风险') || text.includes('⚠️')) {
+    if (text.includes('中风险') || text.includes('⚠️') || text.includes('风险等级：中')) {
       alerts.push('实质性风险：需审查决议内容合法性');
     }
     if (text.includes('建议') || text.includes('修正')) {
@@ -467,19 +292,27 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
 
   const getStatusIcon = (status: ReviewRecord["status"]) => {
     switch (status) {
-      case "pending": return <Clock size={14} className="text-orange-500" />;
-      case "analyzing": return <Loader2 size={14} className="text-blue-500 animate-spin" />;
-      case "completed": return <CheckCircle2 size={14} className="text-green-500" />;
-      case "error": return <AlertTriangle size={14} className="text-red-500" />;
+      case "pending":
+        return <Clock size={14} className="text-orange-500" />;
+      case "analyzing":
+        return <Loader2 size={14} className="text-blue-500 animate-spin" />;
+      case "completed":
+        return <CheckCircle2 size={14} className="text-green-500" />;
+      case "error":
+        return <AlertTriangle size={14} className="text-red-500" />;
     }
   };
 
   const getStatusText = (status: ReviewRecord["status"]) => {
     switch (status) {
-      case "pending": return "待分析";
-      case "analyzing": return "分析中";
-      case "completed": return "已完成";
-      case "error": return "失败";
+      case "pending":
+        return "待分析";
+      case "analyzing":
+        return "分析中";
+      case "completed":
+        return "已完成";
+      case "error":
+        return "失败";
     }
   };
 
@@ -507,7 +340,7 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
     </div>
   );
 
-  // 渲染AI结果面板
+  // 渲染AI结果面板 - 审查结果板块
   const renderResultPanel = () => (
     <div className="mck-card overflow-hidden flex flex-col h-full bg-gradient-to-br from-blue-50/30 to-white">
       <div className="flex items-center justify-between mb-4 pb-3 border-b border-mck-border">
@@ -543,6 +376,7 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
         </div>
       ) : activeRecord?.status === "completed" ? (
         <div className="flex-1 overflow-y-auto space-y-4 pr-2">
+          {/* 思考过程 - 可折叠 */}
           {activeRecord.aiThinking && (
             <div className="border border-mck-border rounded-lg overflow-hidden bg-white/50">
               <button
@@ -574,6 +408,7 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
             </div>
           )}
 
+          {/* AI 审查结论 */}
           {activeRecord.aiResponse && (
             <div className="bg-white rounded-xl border border-blue-200 shadow-sm overflow-hidden">
               <div className="px-4 py-3 bg-gradient-to-r from-blue-50 to-white border-b border-blue-100 flex items-center gap-2">
@@ -602,6 +437,7 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
             </div>
           )}
 
+          {/* 合规风险提示 */}
           {activeRecord.riskAlerts && activeRecord.riskAlerts.length > 0 && (
             <div className="border border-red-200 rounded-xl overflow-hidden bg-white">
               <div className="px-4 py-3 bg-gradient-to-r from-red-50 to-white border-b border-red-100 flex items-center gap-2">
@@ -647,6 +483,7 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
     return (
       <div className="fixed inset-0 z-50 bg-white">
         <div className="h-full flex flex-col">
+          {/* Header */}
           <div className="flex items-center justify-between px-6 py-4 border-b border-mck-border bg-white">
             <div className="flex items-center gap-4">
               <div className="w-10 h-10 bg-mck-blue/10 flex items-center justify-center">
@@ -667,6 +504,7 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
             </button>
           </div>
 
+          {/* Content */}
           <div className="flex-1 overflow-hidden p-6 bg-gradient-to-br from-mck-bg/30 to-white">
             {expandedPanel === "content" ? (
               <div className="h-full overflow-y-auto bg-white p-6 rounded-xl border border-mck-border max-w-4xl mx-auto shadow-sm">
@@ -676,6 +514,7 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
               </div>
             ) : (
               <div className="h-full overflow-y-auto space-y-6 max-w-4xl mx-auto">
+                {/* 思考过程 */}
                 {activeRecord.aiThinking && (
                   <div className="border border-mck-border rounded-xl overflow-hidden bg-white/80">
                     <div className="px-4 py-3 bg-mck-bg/70 flex items-center gap-2">
@@ -690,6 +529,7 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
                   </div>
                 )}
 
+                {/* 审查结论 */}
                 {activeRecord.aiResponse && (
                   <div className="bg-white rounded-xl border border-blue-200 shadow-sm overflow-hidden">
                     <div className="px-4 py-3 bg-gradient-to-r from-blue-50 to-white border-b border-blue-100 flex items-center gap-2">
@@ -718,6 +558,7 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
                   </div>
                 )}
 
+                {/* 风险提示 */}
                 {activeRecord.riskAlerts && activeRecord.riskAlerts.length > 0 && (
                   <div className="border border-red-200 rounded-xl overflow-hidden bg-white">
                     <div className="px-4 py-3 bg-gradient-to-r from-red-50 to-white border-b border-red-100 flex items-center gap-2">
@@ -742,27 +583,18 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
     );
   }
 
-  // 正常视图 - 可拖动调整大小的三栏布局
-  const resultPanelWidth = 100 - leftPanelWidth - contentPanelWidth;
-
+  // 正常视图
   return (
-    <div className="space-y-4 h-[calc(100vh-120px)] flex flex-col">
+    <div className="space-y-6 h-[calc(100vh-120px)]">
       <header>
         <h2 className="text-3xl font-serif font-bold text-mck-navy">合规审查</h2>
-        <p className="text-xs text-mck-navy/40 mt-1">拖动各板块边缘可调整宽度</p>
       </header>
 
-      <div 
-        ref={containerRef}
-        className="flex-1 flex gap-0 min-h-0"
-      >
-        {/* 左侧面板：上传 + 历史记录 */}
-        <div 
-          className="flex flex-col gap-4 h-full overflow-hidden"
-          style={{ width: `${leftPanelWidth}%` }}
-        >
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 h-[calc(100%-80px)]">
+        {/* Left: Upload & History */}
+        <div className="lg:col-span-1 flex flex-col gap-4 h-full">
           {/* Upload Area */}
-          <div className="mck-card flex-shrink-0">
+          <div className="mck-card">
             <h3 className="text-xs font-bold uppercase tracking-widest text-mck-navy/60 mb-4 flex items-center gap-2">
               <Upload size={14} />
               上传文件审查
@@ -776,32 +608,24 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
               className="hidden"
             />
             
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                onClick={triggerFileUpload}
-                disabled={isUploading}
-                className="py-4 border-2 border-dashed border-mck-border hover:border-mck-blue hover:bg-mck-blue/5 transition-all flex flex-col items-center gap-2 disabled:opacity-50"
-              >
-                {isUploading ? (
-                  <>
-                    <Loader2 size={20} className="text-mck-blue animate-spin" />
-                    <span className="text-[10px] text-mck-navy/60">上传中</span>
-                  </>
-                ) : (
-                  <>
-                    <Upload size={20} className="text-mck-navy/40" />
-                    <span className="text-[10px] text-mck-navy/60">本地文件</span>
-                  </>
-                )}
-              </button>
-              <button
-                onClick={loadDocsFromDocCenter}
-                className="py-4 border-2 border-dashed border-mck-border hover:border-mck-blue hover:bg-mck-blue/5 transition-all flex flex-col items-center gap-2"
-              >
-                <FileText size={20} className="text-mck-navy/40" />
-                <span className="text-[10px] text-mck-navy/60">文书中心</span>
-              </button>
-            </div>
+            <button
+              onClick={triggerFileUpload}
+              disabled={isUploading}
+              className="w-full py-8 border-2 border-dashed border-mck-border hover:border-mck-blue hover:bg-mck-blue/5 transition-all flex flex-col items-center gap-3 disabled:opacity-50"
+            >
+              {isUploading ? (
+                <>
+                  <Loader2 size={24} className="text-mck-blue animate-spin" />
+                  <span className="text-sm text-mck-navy/60">上传中 {uploadProgress}%</span>
+                </>
+              ) : (
+                <>
+                  <Upload size={24} className="text-mck-navy/40" />
+                  <span className="text-sm text-mck-navy/60">点击上传会议文件</span>
+                  <span className="text-[10px] text-mck-navy/40">支持 PDF, Word, TXT, Markdown</span>
+                </>
+              )}
+            </button>
 
             {uploadError && (
               <div className="mt-3 p-2 bg-red-50 border border-red-200 text-red-600 text-xs rounded">
@@ -811,8 +635,8 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
           </div>
 
           {/* History List */}
-          <div className="mck-card flex-1 overflow-hidden flex flex-col min-h-0">
-            <h3 className="text-xs font-bold uppercase tracking-widest text-mck-navy/60 mb-4 flex items-center justify-between flex-shrink-0">
+          <div className="mck-card flex-1 overflow-hidden flex flex-col">
+            <h3 className="text-xs font-bold uppercase tracking-widest text-mck-navy/60 mb-4 flex items-center justify-between">
               <span className="flex items-center gap-2">
                 <Clock size={14} />
                 审查历史
@@ -822,7 +646,7 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
             
             <div className="flex-1 overflow-y-auto space-y-2 pr-1">
               {records.length === 0 ? (
-                <div className="text-center py-6 text-mck-navy/40 text-sm">
+                <div className="text-center py-8 text-mck-navy/40 text-sm">
                   暂无审查记录
                 </div>
               ) : (
@@ -831,7 +655,7 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
                     key={record.id}
                     onClick={() => setActiveRecord(record)}
                     className={cn(
-                      "p-2 border cursor-pointer transition-all group relative",
+                      "p-3 border cursor-pointer transition-all group relative",
                       activeRecord?.id === record.id 
                         ? "border-mck-blue bg-mck-blue/5" 
                         : "border-mck-border hover:border-mck-blue/50"
@@ -848,6 +672,8 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
                         <div className="flex items-center gap-2 text-[10px] text-mck-navy/40">
                           {getStatusIcon(record.status)}
                           <span>{getStatusText(record.status)}</span>
+                          <span>·</span>
+                          <span>{record.uploadTime}</span>
                         </div>
                       </div>
                       <button
@@ -864,38 +690,33 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
           </div>
         </div>
 
-        {/* 第一个拖动分隔条 */}
-        <ResizeHandle 
-          direction="horizontal" 
-          onMouseDown={(e) => handleResizeStart('left', e)} 
-        />
-
-        {/* 中间面板：审查内容 */}
-        <div 
-          className="h-full overflow-hidden"
-          style={{ width: `${contentPanelWidth}%` }}
-        >
+        {/* Right: Review Content */}
+        <div className="lg:col-span-3 h-full overflow-hidden">
           {!activeRecord ? (
             <div className="h-full flex items-center justify-center mck-card">
               <div className="text-center">
-                <ShieldCheck size={32} className="text-mck-navy/20 mx-auto mb-3" />
-                <p className="text-sm text-mck-navy/40">选择文件查看内容</p>
+                <ShieldCheck size={48} className="text-mck-navy/20 mx-auto mb-4" />
+                <p className="text-mck-navy/40">请上传文件或选择历史记录开始审查</p>
               </div>
             </div>
           ) : (
-            <div className="h-full flex flex-col gap-2">
+            <div className="h-full flex flex-col gap-4">
               {/* File Info Header */}
-              <div className="mck-card py-3 flex-shrink-0">
+              <div className="mck-card py-4">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-mck-blue/10 flex items-center justify-center">
-                      <FileText size={16} className="text-mck-blue" />
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 bg-mck-blue/10 flex items-center justify-center">
+                      <FileText size={20} className="text-mck-blue" />
                     </div>
                     <div>
-                      <h3 className="text-sm font-medium text-mck-navy truncate max-w-[150px]">{activeRecord.fileName}</h3>
-                      <div className="flex items-center gap-2 text-[10px] text-mck-navy/40">
-                        {getStatusIcon(activeRecord.status)}
-                        <span>{getStatusText(activeRecord.status)}</span>
+                      <h3 className="font-medium text-mck-navy">{activeRecord.fileName}</h3>
+                      <div className="flex items-center gap-3 text-xs text-mck-navy/40 mt-0.5">
+                        <span>{activeRecord.uploadTime}</span>
+                        <span>·</span>
+                        <span className="flex items-center gap-1">
+                          {getStatusIcon(activeRecord.status)}
+                          {getStatusText(activeRecord.status)}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -903,105 +724,28 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
                     <button
                       onClick={() => startAnalysis(activeRecord)}
                       disabled={isAnalyzing}
-                      className="px-3 py-1.5 bg-mck-blue text-white text-xs font-bold uppercase tracking-widest hover:bg-mck-navy transition-all disabled:opacity-50 flex items-center gap-2 flex-shrink-0"
+                      className="px-4 py-2 bg-mck-blue text-white text-xs font-bold uppercase tracking-widest hover:bg-mck-navy transition-all disabled:opacity-50 flex items-center gap-2"
                     >
-                      {isAnalyzing ? <Loader2 size={12} className="animate-spin" /> : <Brain size={12} />}
-                      审查
+                      {isAnalyzing ? <Loader2 size={14} className="animate-spin" /> : <Brain size={14} />}
+                      开始审查
                     </button>
                   )}
                 </div>
               </div>
 
-              {/* Content Panel */}
-              <div className="flex-1 overflow-hidden min-h-0">
-                {renderContentPanel()}
-              </div>
+              {/* Center: Content Panel */}
+        <div className="lg:col-span-1 h-full overflow-hidden flex flex-col">
+          {renderContentPanel()}
+        </div>
+
+        {/* Right: Result Panel - 审查结果板块 */}
+        <div className="lg:col-span-2 h-full overflow-hidden flex flex-col">
+          {renderResultPanel()}
+        </div>
             </div>
           )}
         </div>
-
-        {/* 第二个拖动分隔条 */}
-        <ResizeHandle 
-          direction="horizontal" 
-          onMouseDown={(e) => handleResizeStart('content', e)} 
-        />
-
-        {/* 右侧面板：审查结果 */}
-        <div 
-          className="h-full overflow-hidden"
-          style={{ width: `${resultPanelWidth}%` }}
-        >
-          {renderResultPanel()}
-        </div>
       </div>
-
-      {/* 从文书中心选择文档弹窗 */}
-      {showDocCenterSelect && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-3xl max-h-[80vh] rounded-xl shadow-2xl flex flex-col">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-mck-border">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-mck-blue/10 flex items-center justify-center">
-                  <FileText size={20} className="text-mck-blue" />
-                </div>
-                <div>
-                  <h3 className="font-medium text-mck-navy">从文书中心选择文档</h3>
-                  <p className="text-[10px] text-mck-navy/40">选择要审查的文书</p>
-                </div>
-              </div>
-              <button 
-                onClick={() => setShowDocCenterSelect(false)}
-                className="p-2 hover:bg-mck-bg rounded-full"
-              >
-                <X size={20} className="text-mck-navy/60" />
-              </button>
-            </div>
-            <div className="flex-1 overflow-auto p-4">
-              {docCenterDocs.length === 0 ? (
-                <div className="text-center py-8 text-mck-navy/40">
-                  <FileText size={48} className="mx-auto mb-2" />
-                  <p className="text-sm">文书中心暂无文书</p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {/* 按会议分组显示 */}
-                  {Object.entries(
-                    docCenterDocs.reduce((acc: Record<string, typeof docCenterDocs>, doc) => {
-                      const meeting = doc.meetingTitle || '未分组';
-                      if (!acc[meeting]) acc[meeting] = [];
-                      acc[meeting].push(doc);
-                      return acc;
-                    }, {})
-                  ).map(([meetingTitle, docs]) => (
-                    <div key={meetingTitle} className="border border-mck-border rounded">
-                      <div className="px-3 py-2 bg-mck-navy text-white rounded-t">
-                        <span className="text-xs font-bold">{meetingTitle}</span>
-                      </div>
-                      <div className="divide-y divide-mck-border/30">
-                        {docs.map(doc => (
-                          <div 
-                            key={doc.id}
-                            className="flex items-center justify-between px-3 py-2 hover:bg-mck-bg/30 cursor-pointer"
-                            onClick={() => selectDocFromCenter(doc)}
-                          >
-                            <div className="flex items-center gap-2">
-                              <FileText size={14} className="text-mck-blue" />
-                              <span className="text-sm text-mck-navy">{doc.name}</span>
-                            </div>
-                            <button className="px-3 py-1 bg-mck-blue/10 text-mck-blue text-[10px] rounded hover:bg-mck-blue/20">
-                              选择
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

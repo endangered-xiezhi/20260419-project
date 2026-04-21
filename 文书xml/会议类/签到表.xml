@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ShareholderSignInSheet>
+    <Header>
+        <Logo src="image_16e84e.png" alt="智理·三会 CORPORATE GOVERNANCE AI" align="center" />
+        <Title>***股份有限公司 ***年度股东大会会议股东签到表</Title>
+    </Header>
+    <MainBody>
+        <Item>会议时间：****年**月**日</Item>
+        <Item>会议地点：公司会议室</Item>
+        <SignTable>
+            <HeaderRow>
+                <Column>序号</Column>
+                <Column>股东名称</Column>
+                <Column>股东/股东代表签名</Column>
+            </HeaderRow>
+            <Row>
+                <Data>1</Data>
+                <Data>***</Data>
+                <Data></Data>
+            </Row>
+            <Row>
+                <Data>2</Data>
+                <Data>***</Data>
+                <Data></Data>
+            </Row>
+            <Row>
+                <Data>3</Data>
+                <Data>***</Data>
+                <Data></Data>
+            </Row>
+            <Row>
+                <Data>4</Data>
+                <Data>***</Data>
+                <Data></Data>
+            </Row>
+            <Row>
+                <Data>5</Data>
+                <Data>***</Data>
+                <Data></Data>
+            </Row>
+            <Row>
+                <Data>6</Data>
+                <Data>***</Data>
+                <Data></Data>
+            </Row>
+        </SignTable>
+    </MainBody>
+</ShareholderSignInSheet>

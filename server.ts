@@ -274,6 +274,40 @@ async function startServer() {
 
         console.log("腾讯元器响应状态:", response.status);
 
+        // 处理流式响应
+        if (stream && response.ok) {
+          console.log("[Server] 检测到流式响应，开始转发...");
+          
+          res.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no'
+          });
+
+          const reader = response.body?.getReader();
+          if (reader) {
+            try {
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                res.write(value);
+              }
+              res.end();
+              console.log("[Server] 流式响应转发完成");
+            } catch (streamError: any) {
+              console.error("[Server] 流式转发错误:", streamError.message);
+              if (!res.headersSent) {
+                res.status(500).json({ error: "流式传输中断" });
+              }
+            }
+          } else {
+            res.status(502).json({ error: "无法读取流式响应体" });
+          }
+          return;
+        }
+
+        // 处理非流式响应
         const data = await response.json();
 
         if (!response.ok) {

@@ -69,13 +69,32 @@ export default function App() {
     }
   });
   const [meetingReminders, setMeetingReminders] = useState<MeetingReminder[]>([]);
+  const [emailEditParams, setEmailEditParams] = useState<any>(null);
+  const [complianceWarningCount, setComplianceWarningCount] = useState(0);
   const searchRef = useRef<HTMLDivElement>(null);
   const notificationRef = useRef<HTMLDivElement>(null);
 
   // 导航函数 - 使用 History API 支持浏览器前进/后退
-  const navigateTo = (tab: string) => {
+  const navigateTo = (tab: string, params?: any) => {
+    if (tab === "documents" && params?.editEmailFor) {
+      setEmailEditParams(params);
+    } else {
+      setEmailEditParams(null);
+    }
     window.history.pushState({ tab }, "", `#${tab}`);
     setActiveTab(tab);
+  };
+
+  // 处理合规审查完成，将结果保存到文书中心
+  const handleComplianceReviewComplete = (docId: string, score: number, reviewRecordId: string) => {
+    // 保存合规审查结果到 localStorage（与 DocumentCenter 相同的存储位置）
+    const savedResults = localStorage.getItem("corporate_doc_compliance_results");
+    const results = savedResults ? JSON.parse(savedResults) : {};
+    results[docId] = { docId, score, reviewRecordId };
+    localStorage.setItem("corporate_doc_compliance_results", JSON.stringify(results));
+    
+    // 触发自定义事件通知文书中心刷新数据
+    window.dispatchEvent(new CustomEvent('compliance-review-complete', { detail: { docId, score, reviewRecordId } }));
   };
 
   // 监听浏览器前进/后退
@@ -106,6 +125,27 @@ export default function App() {
       localStorage.removeItem("corporate_active_meeting_id");
     }
   }, [selectedMeetingId]);
+
+  // 计算合规审查预警数量
+  useEffect(() => {
+    const saved = localStorage.getItem("corporate_compliance_records");
+    if (saved) {
+      const records = JSON.parse(saved);
+      // 计算有风险的记录数量
+      let warningCount = 0;
+      records.forEach((record: any) => {
+        if (record.aiResponse) {
+          const response = record.aiResponse.toLowerCase();
+          if (response.includes("风险") || response.includes("不合规") || response.includes("违规")) {
+            warningCount++;
+          }
+        }
+      });
+      setComplianceWarningCount(warningCount);
+    } else {
+      setComplianceWarningCount(0);
+    }
+  }, [activeTab]);
 
   // 点击外部关闭用户菜单
   useEffect(() => {
@@ -580,7 +620,7 @@ export default function App() {
 
         {/* Content Area */}
         <div className="p-8 flex-1 overflow-y-auto">
-          {activeTab === "dashboard" && <Dashboard onNavigate={setActiveTab} />}
+          {activeTab === "dashboard" && <Dashboard onNavigate={setActiveTab} complianceWarningCount={complianceWarningCount} />}
           {activeTab === "meetings" && (
             <MeetingManager onStartMeeting={handleStartMeeting} onNavigate={navigateTo} />
           )}
@@ -593,11 +633,24 @@ export default function App() {
           {activeTab === "compliance" && (
             <ComplianceReview 
               meetingId={selectedMeetingId} 
-              onGenerateDocuments={handleGoToDocuments} 
+              onGenerateDocuments={handleGoToDocuments}
+              onReviewComplete={handleComplianceReviewComplete}
             />
           )}
           {activeTab === "documents" && (
-            <DocumentCenter meetingId={selectedMeetingId} />
+            <DocumentCenter 
+              meetingId={selectedMeetingId}
+              editEmailFor={emailEditParams?.editEmailFor}
+              onEmailSaved={() => setEmailEditParams(null)}
+              onEmailClosed={() => setEmailEditParams(null)}
+              onSendComplete={() => {
+                setEmailEditParams(null);
+                setActiveTab("meetings");
+              }}
+              onComplianceReview={(docId) => {
+                setActiveTab("compliance");
+              }}
+            />
           )}
           {activeTab === "knowledge" && <KnowledgeBase />}
           {activeTab === "settings" && (
