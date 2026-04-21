@@ -253,25 +253,44 @@ async function startServer() {
 
       console.log("正在调用腾讯元器 API, assistant_id:", assistant_id);
 
-      // 转发请求到腾讯元器
-      const response = await fetch("https://open.hunyuan.tencent.com/openapi/v1/agent/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey}`,
-          "X-Source": "openapi"
-        },
-        body: JSON.stringify({ assistant_id, user_id, stream: stream || false, messages })
-      });
+      // 创建超时控制器（55秒超时，给前端留点余地）
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 55000);
 
-      const data = await response.json();
+      try {
+        // 转发请求到腾讯元器
+        const response = await fetch("https://open.hunyuan.tencent.com/openapi/v1/agent/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey}`,
+            "X-Source": "openapi"
+          },
+          body: JSON.stringify({ assistant_id, user_id, stream: stream || false, messages }),
+          signal: controller.signal
+        });
 
-      if (!response.ok) {
-        console.error("腾讯元器 API 错误:", response.status, data);
-        return res.status(response.status).json(data);
+        clearTimeout(timeoutId);
+
+        console.log("腾讯元器响应状态:", response.status);
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          console.error("腾讯元器 API 错误:", response.status, data);
+          return res.status(response.status).json(data);
+        }
+
+        console.log("腾讯元器响应成功，数据长度:", JSON.stringify(data).length);
+        res.json(data);
+      } catch (error: any) {
+        clearTimeout(timeoutId);
+        console.error("元器API调用失败:", error.name, error.message);
+        if (error.name === 'AbortError') {
+          return res.status(504).json({ error: "请求超时，腾讯元器响应时间过长" });
+        }
+        throw error;
       }
-
-      res.json(data);
     } catch (error: any) {
       console.error("元器API调用失败:", error);
       res.status(500).json({
