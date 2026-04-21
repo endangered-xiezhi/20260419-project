@@ -3,19 +3,45 @@ import { FileText, Download, Printer, Check, Edit3, Save, X, FileCheck, Plus, Ch
 import { cn } from "@/lib/utils";
 import { generateWordDocument } from "@/utils/documentGenerator";
 
+// 一级分类类型：会议文件 / 制度文件
+type DocumentLevel1Category = 'meeting' | 'regulation';
+// 二级分类：会议文件(shareholder/board/supervisor) 或 制度文件
+type MeetingCategory = 'shareholder' | 'board' | 'supervisor' | 'other';
+type RegulationCategory = 'governance' | 'strategy' | 'finance' | 'disclosure' | 'risk' | 'management';
+
 // 文书类型定义
 interface DocumentTemplate {
   id: string;
   name: string;
 }
 
+// 制度文件模板（从文书xml/制度类目录读取）
+const regulationTemplates: DocumentTemplate[] = [
+  { id: 'internal_audit', name: '内部审计制度' },
+  { id: 'fund_management', name: '募集资金管理制度' },
+  { id: 'hedging_risk', name: '套期保值业务内部控制及风险管理制度' },
+  { id: 'info_reporting', name: '对外信息报送和使用管理制度' },
+  { id: 'investment', name: '对外投资管理制度' },
+  { id: 'donation', name: '对外捐赠管理制度' },
+  { id: 'market_cap', name: '市值管理制度' },
+  { id: 'error_accountability', name: '年报信息披露重大差错责任追究制度' },
+  { id: 'investor_relations', name: '投资者关系管理制度' },
+  { id: 'independent_director', name: '独立董事工作制度' },
+  { id: 'shares_management', name: '董事、监事、高级管理人员所持公司股份及变动管理制度' },
+  { id: 'monetary_funds', name: '货币资金管理制度' },
+  { id: 'controlling_shareholder', name: '防范控股股东及其关联方资金占用制度' },
+  { id: 'insider_registration', name: '内幕信息知情人登记管理制度' },
+];
+
 interface GeneratedDocument {
   id: string;
   name: string;
-  type: 'voting' | 'voting_stats' | 'agenda' | 'minutes' | 'notice' | 'resolution' | 'signin' | 'proxy' | 'proposal' | 'email' | 'board_voting' | 'board_resolution' | 'board_minutes' | 'board_signin' | 'board_notice' | 'board_proposal';
+  type: string;
   typeName: string;
   meetingTitle: string;
-  meetingType: 'shareholder' | 'board' | 'supervisor';
+  meetingType?: 'shareholder' | 'board' | 'supervisor';
+  level1Category: DocumentLevel1Category;
+  level2Category?: MeetingCategory | RegulationCategory;
   date: string;
   content?: string;
   formData?: any;
@@ -1459,11 +1485,17 @@ const DocumentFormModal: React.FC<{
 export const DocumentCenter: React.FC<DocumentCenterProps> = ({ meetingId, editEmailFor, onEmailSaved, onEmailClosed, onComplianceReview }) => {
   const [showGenerator, setShowGenerator] = useState(false);
   const [showImporter, setShowImporter] = useState(false); // 文书导入弹窗
-  const [selectedCategory, setSelectedCategory] = useState<'shareholder' | 'board' | 'supervisor' | null>(null);
+  // 文书生成：一级分类（会议/制度）
+  const [level1Category, setLevel1Category] = useState<DocumentLevel1Category | null>(null);
+  // 二级分类：会议文件(shareholder/board/supervisor) 或 制度文件(governance/strategy/finance/disclosure/risk/management)
+  const [level2Category, setLevel2Category] = useState<MeetingCategory | RegulationCategory | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState<DocumentTemplate | null>(null);
   const [meetingTitle, setMeetingTitle] = useState('');
   const [meetingHistory, setMeetingHistory] = useState<string[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [expandedTemplates, setExpandedTemplates] = useState(false);
+  // 制度文件标题（用于制度文件生成）
+  const [regulationTitle, setRegulationTitle] = useState('');
   const [generatedDocs, setGeneratedDocs] = useState<GeneratedDocument[]>(() => {
     const saved = localStorage.getItem("corporate_generated_docs");
     return saved ? JSON.parse(saved) : [];
@@ -1567,13 +1599,30 @@ ${new Date().toLocaleDateString('zh-CN')}`,
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleCategorySelect = (category: 'shareholder' | 'board' | 'supervisor') => {
+  // 处理一级分类选择（会议文件/制度文件）
+  const handleLevel1CategorySelect = (category: DocumentLevel1Category) => {
+    setLevel1Category(category);
+    setLevel2Category(null);
+    setSelectedTemplate(null);
+  };
+
+  // 处理二级分类选择（会议文件分支）
+  const handleMeetingCategorySelect = (category: MeetingCategory) => {
     if (category === 'supervisor') {
       setShowComingSoon(true);
       return;
     }
-    setSelectedCategory(category);
-    setExpandedTemplates(true);
+    setLevel2Category(category);
+    setSelectedTemplate(null);
+  };
+
+  // 处理制度文件生成点击
+  const handleRegulationGenerateClick = (template: DocumentTemplate) => {
+    if (!regulationTitle.trim()) {
+      alert('请先输入制度文件名称');
+      return;
+    }
+    setSelectedTemplate(template);
   };
 
   const handleGenerateClick = (template: DocumentTemplate) => {
@@ -1585,29 +1634,54 @@ ${new Date().toLocaleDateString('zh-CN')}`,
   };
 
   const handleGenerateDocument = (content: string, formData?: any) => {
-    if (!formTemplate || !meetingTitle.trim()) return;
+    if (!formTemplate) return;
 
     // 根据文书模板id判断会议类型
     const isBoardTemplate = formTemplate.id.startsWith('board_');
-    const meetingType: 'shareholder' | 'board' | 'supervisor' = isBoardTemplate ? 'board' : 'shareholder';
+    const isRegulationTemplate = regulationTemplates.some(t => t.id === formTemplate.id);
 
-    const newDoc: GeneratedDocument = {
-      id: `doc-${Date.now()}-${formTemplate.id}`,
-      name: `${meetingTitle}${formTemplate.name}`,
-      type: formTemplate.id as GeneratedDocument['type'],
-      typeName: formTemplate.name,
-      meetingTitle: meetingTitle,
-      meetingType: meetingType,
-      date: new Date().toLocaleDateString('zh-CN'),
-      content: content,
-      formData: formData
-    };
+    if (isRegulationTemplate) {
+      // 制度文件生成
+      const newDoc: GeneratedDocument = {
+        id: `doc-${Date.now()}-${formTemplate.id}`,
+        name: `${regulationTitle}${formTemplate.name}`,
+        type: formTemplate.id,
+        typeName: formTemplate.name,
+        meetingTitle: regulationTitle,
+        level1Category: 'regulation',
+        level2Category: formTemplate.id as RegulationCategory,
+        date: new Date().toLocaleDateString('zh-CN'),
+        content: content,
+        formData: formData
+      };
+      setGeneratedDocs(prev => [newDoc, ...prev]);
+      setFormTemplate(null);
+      setRegulationTitle('');
+    } else {
+      // 会议文件生成
+      if (!meetingTitle.trim()) return;
+      const meetingType: 'shareholder' | 'board' | 'supervisor' = isBoardTemplate ? 'board' : 'shareholder';
 
-    saveMeetingTitle(meetingTitle);
-    setMeetingHistory(getMeetingHistory());
+      const newDoc: GeneratedDocument = {
+        id: `doc-${Date.now()}-${formTemplate.id}`,
+        name: `${meetingTitle}${formTemplate.name}`,
+        type: formTemplate.id,
+        typeName: formTemplate.name,
+        meetingTitle: meetingTitle,
+        meetingType: meetingType,
+        level1Category: 'meeting',
+        level2Category: meetingType,
+        date: new Date().toLocaleDateString('zh-CN'),
+        content: content,
+        formData: formData
+      };
 
-    setGeneratedDocs(prev => [newDoc, ...prev]);
-    setFormTemplate(null);
+      saveMeetingTitle(meetingTitle);
+      setMeetingHistory(getMeetingHistory());
+
+      setGeneratedDocs(prev => [newDoc, ...prev]);
+      setFormTemplate(null);
+    }
   };
 
   const handleSelectHistory = (title: string) => {
@@ -1724,13 +1798,24 @@ ${new Date().toLocaleDateString('zh-CN')}`,
 
   // 文书导入弹窗状态
   const [importFile, setImportFile] = useState<File | null>(null);
-  const [importMeetingCategory, setImportMeetingCategory] = useState<'shareholder' | 'board' | 'supervisor' | 'other'>('shareholder');
+  // 文书导入：一级分类
+  const [importLevel1Category, setImportLevel1Category] = useState<DocumentLevel1Category>('meeting');
+  const [importMeetingCategory, setImportMeetingCategory] = useState<MeetingCategory>('shareholder');
+  const [importRegulationCategory, setImportRegulationCategory] = useState<RegulationCategory | ''>('');
   const [importDocType, setImportDocType] = useState<string>('agenda');
   const [importDocName, setImportDocName] = useState('');
   const [importMeetingTitle, setImportMeetingTitle] = useState('');
   const [isImporting, setIsImporting] = useState(false);
   const [showMeetingDropdown, setShowMeetingDropdown] = useState(false);
+  const [showRegulationDropdown, setShowRegulationDropdown] = useState(false);
   const meetingDropdownRef = useRef<HTMLDivElement>(null);
+  const regulationDropdownRef = useRef<HTMLDivElement>(null);
+
+  // 一级分类选项
+  const level1CategoryOptions = [
+    { id: 'meeting', name: '会议文件' },
+    { id: 'regulation', name: '制度文件' },
+  ];
 
   // 会议类型选项
   const meetingCategoryOptions = [
@@ -1782,7 +1867,7 @@ ${new Date().toLocaleDateString('zh-CN')}`,
   };
 
   // 处理会议类型变更
-  const handleMeetingCategoryChange = (category: 'shareholder' | 'board' | 'supervisor' | 'other') => {
+  const handleMeetingCategoryChange = (category: MeetingCategory) => {
     setImportMeetingCategory(category);
     if (category === 'shareholder') {
       setImportDocType('agenda'); // 股东会默认选择大会议程
@@ -1795,7 +1880,9 @@ ${new Date().toLocaleDateString('zh-CN')}`,
 
   // 处理导入
   const handleImport = async () => {
-    if (!importFile || !importDocName || !importMeetingTitle || !importDocType) return;
+    if (!importFile || !importDocName) return;
+    if (importLevel1Category === 'meeting' && (!importMeetingTitle || !importDocType)) return;
+    if (importLevel1Category === 'regulation' && !importRegulationCategory) return;
 
     setIsImporting(true);
 
@@ -1803,28 +1890,50 @@ ${new Date().toLocaleDateString('zh-CN')}`,
       // 读取文件内容
       const content = await importFile.text();
 
-      // 创建新文档
-      const newDoc: GeneratedDocument = {
-        id: `imported-${Date.now()}`,
-        name: importDocName,
-        type: importDocType as GeneratedDocument['type'],
-        typeName: getDocTypesByCategory(importMeetingCategory).find(d => d.id === importDocType)?.name || importDocType,
-        meetingTitle: importMeetingTitle,
-        meetingType: importMeetingCategory as 'shareholder' | 'board' | 'supervisor',
-        date: new Date().toISOString().split('T')[0],
-        content: content,
-      };
+      if (importLevel1Category === 'regulation') {
+        // 制度文件导入
+        const regulationTemplate = regulationTemplates.find(t => t.id === importRegulationCategory);
+        const newDoc: GeneratedDocument = {
+          id: `imported-${Date.now()}`,
+          name: importDocName,
+          type: importRegulationCategory as string,
+          typeName: regulationTemplate?.name || importDocName,
+          meetingTitle: importDocName,
+          level1Category: 'regulation',
+          level2Category: importRegulationCategory as RegulationCategory,
+          date: new Date().toISOString().split('T')[0],
+          content: content,
+        };
+        setGeneratedDocs(prev => {
+          const updated = [newDoc, ...prev];
+          localStorage.setItem("corporate_generated_docs", JSON.stringify(updated));
+          return updated;
+        });
+      } else {
+        // 会议文件导入
+        const newDoc: GeneratedDocument = {
+          id: `imported-${Date.now()}`,
+          name: importDocName,
+          type: importDocType,
+          typeName: getDocTypesByCategory(importMeetingCategory).find(d => d.id === importDocType)?.name || importDocType,
+          meetingTitle: importMeetingTitle,
+          meetingType: importMeetingCategory,
+          level1Category: 'meeting',
+          level2Category: importMeetingCategory,
+          date: new Date().toISOString().split('T')[0],
+          content: content,
+        };
 
-      // 添加到文档列表
-      setGeneratedDocs(prev => {
-        const updated = [newDoc, ...prev];
-        localStorage.setItem("corporate_generated_docs", JSON.stringify(updated));
-        return updated;
-      });
+        // 添加到文档列表
+        setGeneratedDocs(prev => {
+          const updated = [newDoc, ...prev];
+          localStorage.setItem("corporate_generated_docs", JSON.stringify(updated));
+          return updated;
+        });
 
-      // 保存到会议历史
-      if (!meetingHistory.includes(importMeetingTitle)) {
-        const newHistory = [importMeetingTitle, ...meetingHistory].slice(0, 20);
+        // 保存到会议历史
+        if (!meetingHistory.includes(importMeetingTitle)) {
+          const newHistory = [importMeetingTitle, ...meetingHistory].slice(0, 20);
         setMeetingHistory(newHistory);
         localStorage.setItem("corporate_meeting_history", JSON.stringify(newHistory));
       }
@@ -1835,7 +1944,9 @@ ${new Date().toLocaleDateString('zh-CN')}`,
       setImportDocName('');
       setImportMeetingTitle('');
       setImportDocType('agenda');
+      setImportLevel1Category('meeting');
       setImportMeetingCategory('shareholder');
+      setImportRegulationCategory('');
     } catch (error) {
       console.error('导入失败:', error);
     } finally {
@@ -1850,8 +1961,21 @@ ${new Date().toLocaleDateString('zh-CN')}`,
     setImportDocName('');
     setImportMeetingTitle('');
     setImportDocType('agenda');
+    setImportLevel1Category('meeting');
     setImportMeetingCategory('shareholder');
+    setImportRegulationCategory('');
     setShowMeetingDropdown(false);
+    setShowRegulationDropdown(false);
+  };
+
+  // 处理一级分类变更
+  const handleImportLevel1Change = (category: DocumentLevel1Category) => {
+    setImportLevel1Category(category);
+    setImportMeetingCategory('shareholder');
+    setImportRegulationCategory('');
+    setImportDocType('');
+    setShowMeetingDropdown(false);
+    setShowRegulationDropdown(false);
   };
 
   // 点击外部关闭会议类型下拉
@@ -1859,6 +1983,9 @@ ${new Date().toLocaleDateString('zh-CN')}`,
     const handleClickOutside = (e: MouseEvent) => {
       if (meetingDropdownRef.current && !meetingDropdownRef.current.contains(e.target as Node)) {
         setShowMeetingDropdown(false);
+      }
+      if (regulationDropdownRef.current && !regulationDropdownRef.current.contains(e.target as Node)) {
+        setShowRegulationDropdown(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -2068,84 +2195,174 @@ ${email.body}`;
 
             {/* 内容区域 - 可滚动 */}
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
-              {/* 会议类型 - 下拉选择器 */}
-              <div ref={meetingDropdownRef}>
+              {/* 一级分类选择 - 会议文件/制度文件 */}
+              <div>
                 <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/60 mb-1 block">
-                  会议类型
+                  文书分类
                 </label>
-                <div className="relative">
-                  <button
-                    onClick={() => setShowMeetingDropdown(!showMeetingDropdown)}
-                    className="w-full border border-mck-border px-3 py-2 text-xs text-left bg-white rounded-lg flex items-center justify-between focus:outline-none focus:border-mck-blue"
-                  >
-                    <span className={importMeetingCategory === 'shareholder' ? 'text-mck-navy' : 'text-mck-navy/60'}>
-                      {meetingCategoryOptions.find(o => o.id === importMeetingCategory)?.name || '请选择'}
-                    </span>
-                    <ChevronDown size={14} className={cn(
-                      "text-mck-navy/40 transition-transform",
-                      showMeetingDropdown ? "rotate-180" : ""
-                    )} />
-                  </button>
-                  
-                  {/* 下拉列表 */}
-                  {showMeetingDropdown && (
-                    <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-mck-border rounded-lg shadow-lg z-10 overflow-hidden">
-                      {meetingCategoryOptions.map(opt => (
-                        <button
-                          key={opt.id}
-                          onClick={() => {
-                            setImportMeetingCategory(opt.id as any);
-                            setShowMeetingDropdown(false);
-                            if (opt.id !== 'shareholder') {
-                              setImportDocType('');
-                            } else {
-                              setImportDocType('agenda');
-                            }
-                          }}
-                          className={cn(
-                            "w-full px-3 py-2 text-xs text-left transition-colors",
-                            importMeetingCategory === opt.id
-                              ? "bg-mck-blue/10 text-mck-blue"
-                              : "text-mck-navy/70 hover:bg-mck-bg/50"
-                          )}
-                        >
-                          {opt.name}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                <div className="grid grid-cols-2 gap-2">
+                  {level1CategoryOptions.map(opt => (
+                    <button
+                      key={opt.id}
+                      onClick={() => handleImportLevel1Change(opt.id as DocumentLevel1Category)}
+                      className={cn(
+                        "px-3 py-2 text-xs border rounded-lg transition-all font-medium",
+                        importLevel1Category === opt.id
+                          ? opt.id === 'regulation' 
+                            ? "border-green-500 bg-green-50 text-green-700 font-bold"
+                            : "border-mck-blue bg-mck-blue/10 text-mck-blue font-bold"
+                          : "border-mck-border bg-white text-mck-navy/70 hover:border-mck-blue/50"
+                      )}
+                    >
+                      {opt.name}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              {/* 文书类型 */}
-              <div>
-                <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/60 mb-1 block">
-                  文书类型
-                </label>
-                {importMeetingCategory === 'shareholder' || importMeetingCategory === 'board' ? (
-                  <div className="grid grid-cols-3 gap-1">
-                    {getDocTypesByCategory(importMeetingCategory).map(docType => (
-                      <button
-                        key={docType.id}
-                        onClick={() => setImportDocType(docType.id)}
-                        className={cn(
-                          "px-1 py-1.5 text-[10px] border rounded transition-all",
-                          importDocType === docType.id
-                            ? "border-mck-blue bg-mck-blue/10 text-mck-blue font-bold"
-                            : "border-mck-border/50 bg-white text-mck-navy/60 hover:border-mck-blue/30"
-                        )}
-                      >
-                        {docType.name}
-                      </button>
-                    ))}
+              {/* 会议文件 - 会议类型选择 */}
+              {importLevel1Category === 'meeting' ? (
+                <div ref={meetingDropdownRef}>
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/60 mb-1 block">
+                    会议类型
+                  </label>
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowMeetingDropdown(!showMeetingDropdown)}
+                      className="w-full border border-mck-border px-3 py-2 text-xs text-left bg-white rounded-lg flex items-center justify-between focus:outline-none focus:border-mck-blue"
+                    >
+                      <span className={importMeetingCategory === 'shareholder' ? 'text-mck-navy' : 'text-mck-navy/60'}>
+                        {meetingCategoryOptions.find(o => o.id === importMeetingCategory)?.name || '请选择'}
+                      </span>
+                      <ChevronDown size={14} className={cn(
+                        "text-mck-navy/40 transition-transform",
+                        showMeetingDropdown ? "rotate-180" : ""
+                      )} />
+                    </button>
+                    
+                    {/* 下拉列表 */}
+                    {showMeetingDropdown && (
+                      <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-mck-border rounded-lg shadow-lg z-10 overflow-hidden">
+                        {meetingCategoryOptions.map(opt => (
+                          <button
+                            key={opt.id}
+                            onClick={() => {
+                              setImportMeetingCategory(opt.id as MeetingCategory);
+                              setShowMeetingDropdown(false);
+                              if (opt.id !== 'shareholder') {
+                                setImportDocType('');
+                              } else {
+                                setImportDocType('agenda');
+                              }
+                            }}
+                            className={cn(
+                              "w-full px-3 py-2 text-xs text-left transition-colors",
+                              importMeetingCategory === opt.id
+                                ? "bg-mck-blue/10 text-mck-blue"
+                                : "text-mck-navy/70 hover:bg-mck-bg/50"
+                            )}
+                          >
+                            {opt.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                ) : (
-                  <div className="border border-mck-border rounded-lg p-3 text-center bg-mck-bg/30">
-                    <Clock size={16} className="mx-auto text-orange-400 mb-1" />
-                    <p className="text-[10px] text-mck-navy/50">筹建中……</p>
+                </div>
+              ) : (
+                /* 制度文件 - 制度类型选择 */
+                <div ref={regulationDropdownRef}>
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/60 mb-1 block">
+                    制度类型
+                  </label>
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowRegulationDropdown(!showRegulationDropdown)}
+                      className="w-full border border-mck-border px-3 py-2 text-xs text-left bg-white rounded-lg flex items-center justify-between focus:outline-none focus:border-green-500"
+                    >
+                      <span className={importRegulationCategory ? 'text-mck-navy' : 'text-mck-navy/60'}>
+                        {regulationTemplates.find(o => o.id === importRegulationCategory)?.name || '请选择'}
+                      </span>
+                      <ChevronDown size={14} className={cn(
+                        "text-mck-navy/40 transition-transform",
+                        showRegulationDropdown ? "rotate-180" : ""
+                      )} />
+                    </button>
+                    
+                    {/* 下拉列表 */}
+                    {showRegulationDropdown && (
+                      <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-mck-border rounded-lg shadow-lg z-10 overflow-hidden max-h-48 overflow-y-auto">
+                        {regulationTemplates.map(opt => (
+                          <button
+                            key={opt.id}
+                            onClick={() => {
+                              setImportRegulationCategory(opt.id as RegulationCategory);
+                              setImportDocType(opt.id);
+                              setShowRegulationDropdown(false);
+                            }}
+                            className={cn(
+                              "w-full px-3 py-2 text-xs text-left transition-colors",
+                              importRegulationCategory === opt.id
+                                ? "bg-green-50 text-green-700"
+                                : "text-mck-navy/70 hover:bg-mck-bg/50"
+                            )}
+                          >
+                            {opt.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
+                </div>
+              )}
+
+              {/* 文书类型 - 会议文件 */}
+              {importLevel1Category === 'meeting' && (
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/60 mb-1 block">
+                    文书类型
+                  </label>
+                  {importMeetingCategory === 'shareholder' || importMeetingCategory === 'board' ? (
+                    <div className="grid grid-cols-3 gap-1">
+                      {getDocTypesByCategory(importMeetingCategory).map(docType => (
+                        <button
+                          key={docType.id}
+                          onClick={() => setImportDocType(docType.id)}
+                          className={cn(
+                            "px-1 py-1.5 text-[10px] border rounded transition-all",
+                            importDocType === docType.id
+                              ? "border-mck-blue bg-mck-blue/10 text-mck-blue font-bold"
+                              : "border-mck-border/50 bg-white text-mck-navy/60 hover:border-mck-blue/30"
+                          )}
+                        >
+                          {docType.name}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="border border-mck-border rounded-lg p-3 text-center bg-mck-bg/30">
+                      <Clock size={16} className="mx-auto text-orange-400 mb-1" />
+                      <p className="text-[10px] text-mck-navy/50">筹建中……</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 制度文件名称 - 制度文件 */}
+              {importLevel1Category === 'regulation' && importRegulationCategory && (
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/60 mb-1 block">
+                    文件名称
+                  </label>
+                  <input
+                    type="text"
+                    value={importDocName}
+                    onChange={(e) => setImportDocName(e.target.value)}
+                    placeholder="输入制度文件完整名称"
+                    className="w-full border border-mck-border px-3 py-2 text-xs rounded-lg focus:outline-none focus:border-green-500"
+                  />
+                </div>
+              )}
 
               {/* 上传文件 */}
               <div>
@@ -2348,38 +2565,69 @@ ${email.body}`;
             </div>
           </div>
 
+          {/* 一级分类选择：会议文件 / 制度文件 */}
           <div className="mb-6">
             <h4 className="text-xs font-bold uppercase tracking-widest text-mck-navy/60 mb-3">选择文书类别</h4>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 gap-4 mb-3">
               <button
-                onClick={() => handleCategorySelect('shareholder')}
+                onClick={() => handleLevel1CategorySelect('meeting')}
                 className={cn(
                   "p-4 border-2 rounded-xl transition-all text-left",
-                  selectedCategory === 'shareholder' 
+                  level1Category === 'meeting' 
                     ? "border-mck-blue bg-mck-blue/5" 
                     : "border-mck-border hover:border-mck-blue/50"
                 )}
               >
-                <div className="font-bold text-mck-navy">股东会文件</div>
+                <div className="font-bold text-mck-navy mb-1">会议文件</div>
+                <div className="text-[10px] text-mck-navy/50">股东会、董事会、监事会</div>
               </button>
 
               <button
-                onClick={() => handleCategorySelect('board')}
-                className="p-4 border-2 border-mck-border rounded-xl transition-all text-left hover:border-orange-300"
+                onClick={() => handleLevel1CategorySelect('regulation')}
+                className={cn(
+                  "p-4 border-2 rounded-xl transition-all text-left",
+                  level1Category === 'regulation' 
+                    ? "border-green-500 bg-green-50" 
+                    : "border-mck-border hover:border-green-300"
+                )}
               >
-                <div className="font-bold text-mck-navy">董事会文件</div>
-              </button>
-
-              <button
-                onClick={() => handleCategorySelect('supervisor')}
-                className="p-4 border-2 border-mck-border rounded-xl transition-all text-left hover:border-orange-300"
-              >
-                <div className="font-bold text-mck-navy">监事会文件</div>
+                <div className="font-bold text-mck-navy mb-1">制度文件</div>
+                <div className="text-[10px] text-mck-navy/50">公司各类管理制度</div>
               </button>
             </div>
           </div>
 
-          {selectedCategory === 'shareholder' && (
+          {/* 会议文件二级分类 */}
+          {level1Category === 'meeting' && !level2Category && (
+            <div className="animate-in fade-in duration-300">
+              <h4 className="text-xs font-bold uppercase tracking-widest text-mck-navy/60 mb-3">选择会议类型</h4>
+              <div className="grid grid-cols-3 gap-4">
+                <button
+                  onClick={() => handleMeetingCategorySelect('shareholder')}
+                  className="p-4 border-2 border-mck-border rounded-xl transition-all text-left hover:border-mck-blue/50"
+                >
+                  <div className="font-bold text-mck-navy">股东会文件</div>
+                </button>
+
+                <button
+                  onClick={() => handleMeetingCategorySelect('board')}
+                  className="p-4 border-2 border-mck-border rounded-xl transition-all text-left hover:border-mck-blue/50"
+                >
+                  <div className="font-bold text-mck-navy">董事会文件</div>
+                </button>
+
+                <button
+                  onClick={() => handleMeetingCategorySelect('supervisor')}
+                  className="p-4 border-2 border-mck-border rounded-xl transition-all text-left hover:border-mck-blue/50"
+                >
+                  <div className="font-bold text-mck-navy">监事会文件</div>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* 会议文件详情 */}
+          {level1Category === 'meeting' && level2Category === 'shareholder' && (
             <div className="animate-in fade-in duration-300">
               <div className="mb-6">
                 <h4 className="text-xs font-bold uppercase tracking-widest text-mck-navy/60 mb-3">
@@ -2458,7 +2706,7 @@ ${email.body}`;
             </div>
           )}
 
-          {selectedCategory === 'board' && (
+          {level1Category === 'meeting' && level2Category === 'board' && (
             <div className="animate-in fade-in duration-300">
               <div className="mb-6">
                 <h4 className="text-xs font-bold uppercase tracking-widest text-mck-navy/60 mb-3">
@@ -2531,6 +2779,55 @@ ${email.body}`;
                 {!meetingTitle.trim() && (
                   <p className="text-xs text-mck-navy/40 mt-3 text-center">
                     请先输入会议标题后再生成文书
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* 制度文件生成 */}
+          {level1Category === 'regulation' && (
+            <div className="animate-in fade-in duration-300">
+              <div className="mb-6">
+                <h4 className="text-xs font-bold uppercase tracking-widest text-mck-navy/60 mb-3">
+                  制度文件名称
+                </h4>
+                <input
+                  type="text"
+                  value={regulationTitle}
+                  onChange={(e) => setRegulationTitle(e.target.value)}
+                  placeholder="请输入制度文件名称，如：某股份有限公司内部审计制度"
+                  className="w-full px-4 py-3 border border-mck-border rounded-lg focus:outline-none focus:border-mck-blue text-sm"
+                />
+              </div>
+
+              <div>
+                <h4 className="text-xs font-bold uppercase tracking-widest text-mck-navy/60 mb-3">
+                  选择要生成的制度文件
+                </h4>
+                <div className="grid grid-cols-2 gap-3 max-h-[400px] overflow-y-auto pr-2">
+                  {regulationTemplates.map(template => (
+                    <button
+                      key={template.id}
+                      onClick={() => handleRegulationGenerateClick(template)}
+                      disabled={!regulationTitle.trim()}
+                      className={cn(
+                        "p-4 border rounded-lg transition-all text-left",
+                        regulationTitle.trim()
+                          ? "border-green-200 hover:border-green-500 hover:bg-green-50 cursor-pointer"
+                          : "border-mck-border/50 bg-mck-bg/30 cursor-not-allowed opacity-50"
+                      )}
+                    >
+                      <div className="flex items-start gap-2">
+                        <FileText size={14} className="text-green-600 shrink-0 mt-0.5" />
+                        <span className="text-sm font-medium text-mck-navy">{template.name}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+                {!regulationTitle.trim() && (
+                  <p className="text-xs text-mck-navy/40 mt-3 text-center">
+                    请先输入制度文件名称后再生成
                   </p>
                 )}
               </div>
