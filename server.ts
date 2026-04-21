@@ -40,6 +40,31 @@ async function startServer() {
 
   app.use(express.json());
 
+  // CORS 中间件 - 允许前端跨域请求
+  app.use((req, res, next) => {
+    // 允许所有来源的跨域请求（开发环境）
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    
+    // 处理 OPTIONS 预检请求
+    if (req.method === 'OPTIONS') {
+      return res.status(200).end();
+    }
+    
+    next();
+  });
+
+  // 请求日志中间件 - 帮助调试
+  app.use((req, res, next) => {
+    if (req.path.includes('yuanqi')) {
+      console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+      console.log('Headers:', JSON.stringify(req.headers, null, 2));
+      console.log('Body:', JSON.stringify(req.body, null, 2));
+    }
+    next();
+  });
+
   // 创建上传目录
   const uploadsDir = join(__dirname, "uploads");
   try {
@@ -207,6 +232,53 @@ async function startServer() {
     // const apiKey = process.env.BAIDU_API_KEY;
     // const secretKey = process.env.BAIDU_SECRET_KEY;
     res.json({ token: "mock_baidu_token", expires_in: 2592000 });
+  });
+
+  // 腾讯元器智能体 API 代理
+  app.post("/api/yuanqi/openapi/v1/agent/chat/completions", async (req, res) => {
+    try {
+      // 从前端传来的 Authorization 头提取 Bearer Token
+      const authHeader = req.headers.authorization || "";
+      
+      if (!authHeader.startsWith("Bearer ")) {
+        return res.status(401).json({ error: "缺少有效的 Authorization 头" });
+      }
+
+      const apiKey = authHeader.replace("Bearer ", "");
+      const { assistant_id, user_id, stream, messages } = req.body;
+
+      if (!assistant_id || !user_id || !messages) {
+        return res.status(400).json({ error: "缺少必需参数" });
+      }
+
+      console.log("正在调用腾讯元器 API, assistant_id:", assistant_id);
+
+      // 转发请求到腾讯元器
+      const response = await fetch("https://open.hunyuan.tencent.com/openapi/v1/agent/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`,
+          "X-Source": "openapi"
+        },
+        body: JSON.stringify({ assistant_id, user_id, stream: stream || false, messages })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        console.error("腾讯元器 API 错误:", response.status, data);
+        return res.status(response.status).json(data);
+      }
+
+      res.json(data);
+    } catch (error: any) {
+      console.error("元器API调用失败:", error);
+      res.status(500).json({
+        error: "元器API调用失败",
+        details: error.message
+      });
+    }
   });
 
   // 腾讯云语音识别 API - 录音文件识别
