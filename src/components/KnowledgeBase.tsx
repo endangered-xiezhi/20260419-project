@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Plus, Search, Trash2, Edit3, FileText, CheckCircle, Clock, Save, X, FileUp, RefreshCw } from "lucide-react";
+import { Plus, Search, Trash2, Edit3, FileText, CheckCircle, Clock, Save, X, FileUp, RefreshCw, ChevronLeft, ChevronRight } from "lucide-react";
 import { KnowledgeItem } from "../types";
 import { cn } from "@/lib/utils";
+
+const ITEMS_PER_PAGE = 10;
 const KB_IMPORT_VERSION = "rules-word-pdf-v1";
 const KB_STORAGE_KEY = "corporate_knowledge_base";
 const KB_VERSION_KEY = "knowledge_import_version";
@@ -34,7 +36,22 @@ export const KnowledgeBase: React.FC = () => {
   const [isUploading, setIsUploading] = useState(false);
   const [ocrBodyLoading, setOcrBodyLoading] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 计算总页数
+  const totalPages = Math.ceil(categoryFilteredItems.length / ITEMS_PER_PAGE);
+
+  // 获取当前页数据
+  const paginatedItems = categoryFilteredItems.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  );
+
+  // 当筛选条件变化时重置到第一页
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedCategory]);
 
   useEffect(() => {
     if (readCachedKnowledge()) return;
@@ -368,7 +385,7 @@ export const KnowledgeBase: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 gap-4">
-            {categoryFilteredItems.length === 0 ? (
+            {paginatedItems.length === 0 ? (
               <div className="mck-card text-center py-12">
                 <FileText size={48} className="mx-auto text-mck-border mb-4" />
                 <p className="text-sm text-mck-navy/40">
@@ -377,7 +394,7 @@ export const KnowledgeBase: React.FC = () => {
               </div>
             ) : (
               <React.Fragment>
-                {categoryFilteredItems.map(item => (
+                {paginatedItems.map(item => (
                   <div key={item.id} className="mck-card group hover:border-mck-blue transition-all">
                     <div className="flex items-start justify-between">
                       <div className="flex gap-6">
@@ -428,6 +445,73 @@ export const KnowledgeBase: React.FC = () => {
                   </div>
                 ))}
               </React.Fragment>
+            )}
+
+            {/* 分页控件 */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-center gap-2 mt-6 py-4">
+                <button
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className={cn(
+                    "flex items-center gap-1 px-3 py-2 text-xs font-bold rounded-lg transition-all",
+                    currentPage === 1
+                      ? "bg-mck-bg text-mck-navy/30 cursor-not-allowed"
+                      : "bg-mck-bg text-mck-navy/60 hover:bg-mck-blue hover:text-white"
+                  )}
+                >
+                  <ChevronLeft size={14} />
+                  上一页
+                </button>
+
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => {
+                    // 显示逻辑：总页数 <= 7 显示全部，否则显示省略号
+                    const showPage = totalPages <= 7 ||
+                      page === 1 ||
+                      page === totalPages ||
+                      (page >= currentPage - 1 && page <= currentPage + 1);
+
+                    if (!showPage && (page === 2 || page === totalPages - 1)) {
+                      return <span key={page} className="px-2 text-mck-navy/40">...</span>;
+                    }
+                    if (!showPage) return null;
+
+                    return (
+                      <button
+                        key={page}
+                        onClick={() => setCurrentPage(page)}
+                        className={cn(
+                          "w-9 h-9 text-xs font-bold rounded-lg transition-all",
+                          currentPage === page
+                            ? "bg-mck-blue text-white"
+                            : "bg-mck-bg text-mck-navy/60 hover:bg-mck-blue/20"
+                        )}
+                      >
+                        {page}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <button
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className={cn(
+                    "flex items-center gap-1 px-3 py-2 text-xs font-bold rounded-lg transition-all",
+                    currentPage === totalPages
+                      ? "bg-mck-bg text-mck-navy/30 cursor-not-allowed"
+                      : "bg-mck-bg text-mck-navy/60 hover:bg-mck-blue hover:text-white"
+                  )}
+                >
+                  下一页
+                  <ChevronRight size={14} />
+                </button>
+
+                <span className="ml-2 text-xs text-mck-navy/40">
+                  共 {categoryFilteredItems.length} 条
+                </span>
+              </div>
             )}
           </div>
         </div>
