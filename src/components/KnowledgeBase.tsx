@@ -51,6 +51,9 @@ export const KnowledgeBase: React.FC = () => {
   });
   // 预览制度文件弹窗
   const [previewRegulation, setPreviewRegulation] = useState<ImportedRegulationDoc | null>(null);
+  // 分页状态
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
 
   useEffect(() => {
     if (readCachedKnowledge()) return;
@@ -345,9 +348,9 @@ export const KnowledgeBase: React.FC = () => {
                 { name: "公司章程制度", key: "公司章程", count: items.filter(i => i.category === "公司章程").length + importedRegulations.length },
                 { name: "法律法规", key: "法律法规", count: items.filter(i => i.category === "法律法规").length }
               ].map(cat => (
-                <button
+                  <button
                   key={cat.key}
-                  onClick={() => setSelectedCategory(selectedCategory === cat.key ? null : cat.key)}
+                  onClick={() => { setSelectedCategory(selectedCategory === cat.key ? null : cat.key); setCurrentPage(1); }}
                   className={cn(
                     "w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs transition-all",
                     selectedCategory === cat.key 
@@ -377,7 +380,7 @@ export const KnowledgeBase: React.FC = () => {
                 type="text" 
                 placeholder="搜索法律法规、公司章程制度…"  
                 value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
+                onChange={e => { setSearchQuery(e.target.value); setCurrentPage(1); }}
                 className="w-full bg-white border border-mck-border pl-12 pr-4 py-3 text-sm focus:outline-none focus:border-mck-blue"
               />
             </div>
@@ -411,9 +414,15 @@ export const KnowledgeBase: React.FC = () => {
                 );
               }
               
+              // 分页计算
+              const totalPages = Math.ceil(allItems.length / pageSize);
+              const startIndex = (currentPage - 1) * pageSize;
+              const endIndex = startIndex + pageSize;
+              const paginatedItems = allItems.slice(startIndex, endIndex);
+              
               return (
                 <React.Fragment>
-                  {allItems.map(item => (
+                  {paginatedItems.map(item => (
                     <div key={item.id} className="mck-card group hover:border-mck-blue transition-all">
                       <div className="flex items-start justify-between">
                         <div className="flex gap-6">
@@ -495,6 +504,45 @@ export const KnowledgeBase: React.FC = () => {
                       </div>
                     </div>
                   ))}
+                  
+                  {/* 分页控件 */}
+                  {totalPages > 1 && (
+                    <div className="flex items-center justify-center gap-2 mt-6 pt-4 border-t border-mck-border">
+                      <button
+                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                        disabled={currentPage === 1}
+                        className="px-3 py-1.5 text-xs font-medium text-mck-navy/60 hover:text-mck-navy disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        上一页
+                      </button>
+                      <div className="flex items-center gap-1">
+                        {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                          <button
+                            key={page}
+                            onClick={() => setCurrentPage(page)}
+                            className={cn(
+                              "w-8 h-8 text-xs font-medium rounded",
+                              currentPage === page
+                                ? "bg-mck-blue text-white"
+                                : "text-mck-navy/60 hover:bg-mck-bg"
+                            )}
+                          >
+                            {page}
+                          </button>
+                        ))}
+                      </div>
+                      <button
+                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                        disabled={currentPage === totalPages}
+                        className="px-3 py-1.5 text-xs font-medium text-mck-navy/60 hover:text-mck-navy disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        下一页
+                      </button>
+                      <span className="text-[10px] text-mck-navy/40 ml-2">
+                        共 {allItems.length} 条 / 第 {currentPage}/{totalPages} 页
+                      </span>
+                    </div>
+                  )}
                 </React.Fragment>
               );
             })()}
