@@ -334,13 +334,6 @@ export const KnowledgeBase: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
         {/* Stats */}
         <div className="lg:col-span-1 space-y-6">
-          <div className="mck-card mck-card-accent-blue">
-            <div className="flex items-baseline gap-2 mb-2">
-              <span className="text-4xl font-serif font-bold text-mck-navy">100%</span>
-              <span className="text-xs text-mck-navy/80 font-bold">已同步</span>
-            </div>
-          </div>
-
           <div className="mck-card">
             <h3 className="text-xs font-bold uppercase tracking-widest text-mck-navy/60 mb-4">规则类型</h3>
             <div className="space-y-3">

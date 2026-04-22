@@ -632,11 +632,11 @@ export default function App() {
                 setActiveTab("documents");
                 // 延迟滚动到锚点，等待DOM渲染完成
                 setTimeout(() => {
-                  const element = document.getElementById("document-folder");
+                  const element = document.getElementById("document-folder-anchor");
                   if (element) {
                     element.scrollIntoView({ behavior: "smooth", block: "start" });
                   }
-                }, 500);
+                }, 100);
               }}
             />
           )}

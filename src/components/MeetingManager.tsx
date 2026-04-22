@@ -273,6 +273,7 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
   const [showDayPanel, setShowDayPanel] = useState(false);
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
+  const [showHistoryMeetings, setShowHistoryMeetings] = useState(false); // 是否显示历史会议
 
   // 新建会议弹窗状态
   const [showNewMeetingModal, setShowNewMeetingModal] = useState(false);
@@ -345,8 +346,13 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
   }, [meetings]);
 
   const filteredMeetings = filterType === "ALL"
-    ? meetings
-    : meetings.filter((m) => m.type === filterType);
+    ? meetings.filter(m => !showHistoryMeetings ? m.status !== "已结束" : true)
+    : meetings.filter((m) => m.type === filterType && (!showHistoryMeetings ? m.status !== "已结束" : true));
+
+  // 历史会议列表
+  const historyMeetings = filterType === "ALL"
+    ? meetings.filter(m => m.status === "已结束")
+    : meetings.filter((m) => m.type === filterType && m.status === "已结束");
 
   const handleSelectDate = (date: string) => {
     setSelectedDate(date);
@@ -994,11 +1000,48 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
               <p className="text-sm">暂无待办会议</p>
             </div>
           )}
-          <div className="mt-4 pt-4 border-t border-mck-border relative z-10">
-            <button className="w-full text-[10px] font-bold uppercase tracking-widest text-mck-blue hover:text-mck-navy transition-colors cursor-pointer bg-transparent">
-              查看历史会议档案 →
-            </button>
-          </div>
+          
+          {/* 历史会议展开区域 */}
+          {historyMeetings.length > 0 && (
+            <div className="border-t border-mck-border">
+              <button
+                onClick={() => setShowHistoryMeetings(!showHistoryMeetings)}
+                className="w-full flex items-center justify-between px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-mck-navy/60 hover:text-mck-navy hover:bg-mck-bg/50 transition-colors"
+              >
+                <span className="flex items-center gap-2">
+                  <History size={14} />
+                  历史会议
+                  <span className="bg-mck-bg px-2 py-0.5 rounded">{historyMeetings.length}</span>
+                </span>
+                <ChevronRight size={14} className={cn("transition-transform", showHistoryMeetings && "rotate-90")} />
+              </button>
+              {showHistoryMeetings && (
+                <div className="divide-y divide-mck-border">
+                  {historyMeetings.map((meeting) => (
+                    <div 
+                      key={meeting.id} 
+                      className="flex items-center gap-3 p-3 hover:bg-mck-bg/30 cursor-pointer transition-colors"
+                      onClick={() => setSelectedMeeting(selectedMeeting?.id === meeting.id ? null : meeting)}
+                    >
+                      <div className="w-8 h-8 bg-mck-bg flex items-center justify-center text-mck-navy/40 rounded">
+                        <CalendarIcon size={14} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-mck-navy/60 truncate">{meeting.title}</p>
+                        <p className="text-[10px] text-mck-navy/40">{meeting.type} · {meeting.date}</p>
+                      </div>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); onNavigate?.("documents", { meetingId: meeting.id, meetingTitle: meeting.title }); }}
+                        className="text-[10px] text-mck-blue hover:text-mck-navy font-bold"
+                      >
+                        查看文件
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

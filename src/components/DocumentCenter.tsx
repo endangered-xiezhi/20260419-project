@@ -1562,11 +1562,20 @@ export const DocumentCenter: React.FC<DocumentCenterProps> = ({ meetingId, editE
       const customEvent = event as CustomEvent<ImportedMinutesRecord>;
       const importedRecord = customEvent.detail;
 
-      if (!importedRecord || !importedRecord.title) return;
+      if (!importedRecord || !importedRecord.title || !importedRecord.sourceRecordId) return;
+
+      // 防重复检查：检查是否已存在相同的 sourceRecordId
+      const existingCheck = localStorage.getItem("corporate_generated_docs");
+      if (existingCheck) {
+        const existingDocs: GeneratedDocument[] = JSON.parse(existingCheck);
+        if (existingDocs.some(doc => doc.sourceRecordId === importedRecord.sourceRecordId)) {
+          return; // 已存在，跳过
+        }
+      }
 
       // 创建导入的文书记录
       const newDoc: GeneratedDocument = {
-        id: `minutes-imported-${Date.now()}`,
+        id: `minutes-imported-${importedRecord.id || Date.now()}`,
         name: importedRecord.title,
         type: 'minutes',
         typeName: '会议纪要',
@@ -1592,6 +1601,10 @@ export const DocumentCenter: React.FC<DocumentCenterProps> = ({ meetingId, editE
       const minutesStorageKey = "corporate_meeting_minutes_imported";
       const saved = localStorage.getItem(minutesStorageKey);
       const existingMinutes: ImportedMinutesRecord[] = saved ? JSON.parse(saved) : [];
+      // 防重复检查
+      if (existingMinutes.some(m => m.sourceRecordId === importedRecord.sourceRecordId)) {
+        return;
+      }
       const updatedMinutes = [importedRecord, ...existingMinutes];
       localStorage.setItem(minutesStorageKey, JSON.stringify(updatedMinutes));
     };
@@ -3374,9 +3387,12 @@ ${email.body}`;
         </div>
       )}
 
+      {/* 在线文件夹 - 滚动锚点 */}
+      <div id="document-folder-anchor" className="h-0 w-full" />
+      
       {/* 在线文件夹 - 紧凑表格布局 */}
       {(generatedDocs.length > 0 || emails.length > 0) && (
-        <div className="mck-card" id="document-folder">
+        <div className="mck-card">
           <div className="flex items-center justify-between mb-4 pb-3 border-b border-mck-border">
             <div className="flex items-center gap-2">
               <FolderOpen size={16} className="text-green-600" />
@@ -3422,14 +3438,9 @@ ${email.body}`;
                       {docs.map(doc => (
                         <tr key={doc.id} className={cn("hover:bg-mck-bg/30", doc.isImportedMinutes && "bg-purple-50/30")}>
                           <td className="px-3 py-1.5">
-                            <div className="flex items-center gap-1">
-                              {doc.isImportedMinutes && (
-                                <span className="px-1 py-0.5 bg-purple-100 text-purple-600 text-[9px] font-bold rounded">导入</span>
-                              )}
-                              <span className={doc.isImportedMinutes ? "text-purple-600" : "text-mck-navy/60"}>
-                                {docTypeNames[doc.type] || doc.typeName}
-                              </span>
-                            </div>
+                            <span className="text-mck-navy/60">
+                              {docTypeNames[doc.type] || doc.typeName}
+                            </span>
                           </td>
                           <td className="px-3 py-1.5 text-mck-navy">{doc.name}</td>
                           <td className="px-3 py-1.5 text-mck-navy/40">{doc.date}</td>
