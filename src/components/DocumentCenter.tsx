@@ -3571,84 +3571,6 @@ ${email.body}`;
               </div>
             );
           })()}
-
-          {/* 规则文件库分组 - 紫色表头 */}
-          {(() => {
-            if (importedRuleDocs.length === 0) return null;
-            
-            return (
-              <div className="border border-mck-border rounded mt-4">
-                {/* 规则文件库标题行 - 紫色背景 */}
-                <div className="flex items-center justify-between px-3 py-2 bg-purple-600 text-white rounded-t">
-                  <div className="flex items-center gap-2">
-                    <FileText size={12} />
-                    <span className="text-xs font-bold">公司章程制度</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-[10px] opacity-80">
-                    <span>{importedRuleDocs.length}份制度文件</span>
-                  </div>
-                </div>
-                
-                {/* 表格内容 - 与会议文件样式一致 */}
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="bg-mck-bg/50 text-mck-navy/60">
-                      <th className="px-3 py-1.5 text-left font-medium w-24">制度类型</th>
-                      <th className="px-3 py-1.5 text-left font-medium">文件名</th>
-                      <th className="px-3 py-1.5 text-left font-medium w-20">日期</th>
-                      <th className="px-3 py-1.5 text-center font-medium w-20">合规审查</th>
-                      <th className="px-3 py-1.5 text-center font-medium w-36">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-mck-border/30">
-                    {importedRuleDocs.map(doc => (
-                      <tr key={doc.id} className="hover:bg-mck-bg/30">
-                        <td className="px-3 py-1.5">
-                          <div className="flex items-center gap-1">
-                            <FileText size={12} className="text-mck-navy/60" />
-                            <span className="text-mck-navy/60">
-                              {doc.typeName}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-3 py-1.5 text-mck-navy">{doc.name}</td>
-                        <td className="px-3 py-1.5 text-mck-navy/40">{doc.date}</td>
-                        <td className="px-3 py-1.5 text-center">
-                          <span className="text-gray-400 text-xs font-bold">/</span>
-                        </td>
-                        <td className="px-3 py-1.5">
-                          <div className="flex items-center justify-center gap-1">
-                            <button onClick={() => {
-                              setRegulationEditDoc(doc);
-                              setRegulationEditContent(doc.content || '');
-                              setShowRegulationEditor(true);
-                            }} className="p-1 hover:bg-purple-50 rounded" title="编辑">
-                              <Edit3 size={12} className="text-purple-600" />
-                            </button>
-                            <button onClick={() => setPreviewDoc(doc)} className="p-1 hover:bg-mck-blue/10 rounded" title="预览">
-                              <Eye size={12} className="text-mck-navy/60" />
-                            </button>
-                            <button onClick={() => handleDownload(doc)} className="p-1 hover:bg-mck-blue/10 rounded" title="下载">
-                              <FileDown size={12} className="text-mck-blue" />
-                            </button>
-                            <button onClick={() => {
-                              setImportedRuleDocs(prev => {
-                                const updated = prev.filter(d => d.id !== doc.id);
-                                localStorage.setItem("corporate_imported_rule_docs", JSON.stringify(updated));
-                                return updated;
-                              });
-                            }} className="p-1 hover:bg-red-50 rounded" title="删除">
-                              <Trash2 size={12} className="text-red-400" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            );
-          })()}
         </div>
       )}
 
@@ -3657,8 +3579,8 @@ ${email.body}`;
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-md rounded-xl shadow-2xl p-6">
             <div className="text-center">
-              <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Upload size={32} className="text-purple-600" />
+              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Upload size={32} className="text-green-600" />
               </div>
               <h3 className="text-lg font-bold text-mck-navy mb-2">确认导入规则文件库</h3>
               <p className="text-sm text-mck-navy/60 mb-6">
@@ -3673,7 +3595,7 @@ ${email.body}`;
                 </button>
                 <button
                   onClick={handleConfirmImportRuleLibrary}
-                  className="px-6 py-2 bg-purple-600 text-white text-sm font-bold rounded-lg hover:bg-purple-700 transition-colors"
+                  className="px-6 py-2 bg-green-600 text-white text-sm font-bold rounded-lg hover:bg-green-700 transition-colors"
                 >
                   确定
                 </button>

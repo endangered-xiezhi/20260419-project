@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Plus, Search, Trash2, Edit3, FileText, CheckCircle, Clock, Save, X, FileUp, RefreshCw } from "lucide-react";
+import { Plus, Search, Trash2, Edit3, FileText, CheckCircle, Clock, Save, X, FileUp, RefreshCw, Eye, Edit } from "lucide-react";
 import { KnowledgeItem } from "../types";
 import { cn } from "@/lib/utils";
 const KB_IMPORT_VERSION = "rules-word-pdf-v1";
@@ -24,6 +24,15 @@ function readCachedKnowledge(): KnowledgeItem[] | null {
   }
 }
 
+// 导入的制度文件类型
+interface ImportedRegulationDoc {
+  id: string;
+  name: string;
+  typeName: string;
+  content: string;
+  date: string;
+}
+
 export const KnowledgeBase: React.FC = () => {
   const cached = readCachedKnowledge();
   const [items, setItems] = useState<KnowledgeItem[]>(() => cached ?? []);
@@ -35,6 +44,13 @@ export const KnowledgeBase: React.FC = () => {
   const [ocrBodyLoading, setOcrBodyLoading] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // 导入的制度文件列表
+  const [importedRegulations, setImportedRegulations] = useState<ImportedRegulationDoc[]>(() => {
+    const saved = localStorage.getItem("corporate_imported_rule_docs");
+    return saved ? JSON.parse(saved) : [];
+  });
+  // 预览制度文件弹窗
+  const [previewRegulation, setPreviewRegulation] = useState<ImportedRegulationDoc | null>(null);
 
   useEffect(() => {
     if (readCachedKnowledge()) return;
@@ -211,7 +227,7 @@ export const KnowledgeBase: React.FC = () => {
         <div>
           <h2 className="text-3xl font-serif font-bold text-mck-navy">规则文件库</h2>
           {!kbLoading && items.length > 0 && (
-            <p className="text-mck-navy/40 mt-1 text-xs">已载入 {items.length} 份</p>
+            <p className="text-mck-navy/40 mt-1 text-xs">已载入 {items.length} 份（含导入制度 {importedRegulations.length} 份）</p>
           )}
         </div>
         <button 
@@ -326,8 +342,8 @@ export const KnowledgeBase: React.FC = () => {
             <h3 className="text-xs font-bold uppercase tracking-widest text-mck-navy/60 mb-4">规则类型</h3>
             <div className="space-y-3">
               {[
-                { name: "公司章程制度", key: "公司章程" },
-                { name: "法律法规", key: "法律法规" }
+                { name: "公司章程制度", key: "公司章程", count: items.filter(i => i.category === "公司章程").length + importedRegulations.length },
+                { name: "法律法规", key: "法律法规", count: items.filter(i => i.category === "法律法规").length }
               ].map(cat => (
                 <button
                   key={cat.key}
@@ -344,7 +360,7 @@ export const KnowledgeBase: React.FC = () => {
                     "px-2 py-0.5 rounded text-[10px]",
                     selectedCategory === cat.key ? "bg-white/20" : "bg-mck-navy/10"
                   )}>
-                    {items.filter(i => i.category === cat.key).length}
+                    {cat.count}
                   </span>
                 </button>
               ))}
@@ -368,70 +384,153 @@ export const KnowledgeBase: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 gap-4">
-            {categoryFilteredItems.length === 0 ? (
-              <div className="mck-card text-center py-12">
-                <FileText size={48} className="mx-auto text-mck-border mb-4" />
-                <p className="text-sm text-mck-navy/40">
-                  {selectedCategory ? `暂无${selectedCategory}相关文件` : "暂无相关文件"}
-                </p>
-              </div>
-            ) : (
-              <React.Fragment>
-                {categoryFilteredItems.map(item => (
-                  <div key={item.id} className="mck-card group hover:border-mck-blue transition-all">
-                    <div className="flex items-start justify-between">
-                      <div className="flex gap-6">
-                        <div className="w-12 h-12 bg-mck-bg flex items-center justify-center text-mck-navy/40 group-hover:text-mck-blue transition-colors">
-                          <FileText size={24} />
-                        </div>
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-3">
-                            <span className={cn(
-                              "text-[9px] font-bold uppercase px-1.5 py-0.5",
-                              item.category === "法律法规" ? "bg-blue-100 text-blue-700" : 
-                              item.category === "公司章程" ? "bg-purple-100 text-purple-700" : "bg-mck-bg text-mck-navy/60"
-                            )}>
-                              {item.category}
-                            </span>
-                            <h4 className="text-base font-serif font-bold text-mck-navy">{item.title}</h4>
+            {(() => {
+              // 当选择"公司章程"分类时，包含导入的制度文件
+              const showImportedRegs = selectedCategory === "公司章程";
+              const allItems = showImportedRegs 
+                ? [...categoryFilteredItems, ...importedRegulations.map(reg => ({
+                    id: reg.id,
+                    title: reg.name,
+                    category: "公司章程",
+                    content: reg.content,
+                    lastModified: reg.date,
+                    status: "已生效",
+                    isImportedRegulation: true,
+                    originalRegulation: reg
+                  }))]
+                : categoryFilteredItems;
+              
+              if (allItems.length === 0) {
+                return (
+                  <div className="mck-card text-center py-12">
+                    <FileText size={48} className="mx-auto text-mck-border mb-4" />
+                    <p className="text-sm text-mck-navy/40">
+                      {selectedCategory ? `暂无${selectedCategory}相关文件` : "暂无相关文件"}
+                    </p>
+                  </div>
+                );
+              }
+              
+              return (
+                <React.Fragment>
+                  {allItems.map(item => (
+                    <div key={item.id} className="mck-card group hover:border-mck-blue transition-all">
+                      <div className="flex items-start justify-between">
+                        <div className="flex gap-6">
+                          <div className="w-12 h-12 bg-mck-bg flex items-center justify-center text-mck-navy/40 group-hover:text-mck-blue transition-colors">
+                            <FileText size={24} />
                           </div>
-                          <p className="text-sm text-mck-navy/60 line-clamp-2 leading-relaxed max-w-2xl">
-                            {item.content}
-                          </p>
-                          <div className="flex items-center gap-4 pt-2">
-                            <div className="flex items-center gap-1 text-[10px] text-mck-navy/40 uppercase tracking-wider">
-                              <Clock size={10} />
-                              最后更新: {item.lastModified}
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-3">
+                              <span className={cn(
+                                "text-[9px] font-bold uppercase px-1.5 py-0.5",
+                                item.category === "法律法规" ? "bg-blue-100 text-blue-700" : 
+                                item.category === "公司章程" ? "bg-green-100 text-green-700" : "bg-mck-bg text-mck-navy/60"
+                              )}>
+                                {item.category}
+                              </span>
+                              {item.isImportedRegulation && (
+                                <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 bg-purple-100 text-purple-700">
+                                  已导入
+                                </span>
+                              )}
+                              <h4 className="text-base font-serif font-bold text-mck-navy">{item.title}</h4>
                             </div>
-                            <div className="flex items-center gap-1 text-[10px] text-green-600 font-bold uppercase tracking-wider">
-                              <CheckCircle size={10} />
-                              AI 已同步
+                            <p className="text-sm text-mck-navy/60 line-clamp-2 leading-relaxed max-w-2xl">
+                              {item.content}
+                            </p>
+                            <div className="flex items-center gap-4 pt-2">
+                              <div className="flex items-center gap-1 text-[10px] text-mck-navy/40 uppercase tracking-wider">
+                                <Clock size={10} />
+                                最后更新: {item.lastModified}
+                              </div>
+                              <div className="flex items-center gap-1 text-[10px] text-green-600 font-bold uppercase tracking-wider">
+                                <CheckCircle size={10} />
+                                AI 已同步
+                              </div>
                             </div>
                           </div>
                         </div>
-                      </div>
-                      <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button 
-                          onClick={() => { setCurrentItem(item); setIsEditing(true); }}
-                          className="p-2 hover:bg-mck-bg text-mck-navy/40 hover:text-mck-blue"
-                        >
-                          <Edit3 size={18} />
-                        </button>
-                        <button 
-                          onClick={() => handleDelete(item.id)}
-                          className="p-2 hover:bg-mck-bg text-mck-navy/40 hover:text-mck-red"
-                        >
-                          <Trash2 size={18} />
-                        </button>
+                        <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          {item.isImportedRegulation ? (
+                            <>
+                              <button 
+                                onClick={() => setPreviewRegulation(item.originalRegulation)}
+                                className="p-2 hover:bg-mck-bg text-mck-navy/40 hover:text-mck-blue"
+                                title="预览"
+                              >
+                                <Eye size={18} />
+                              </button>
+                              <button 
+                                onClick={() => {
+                                  setImportedRegulations(prev => {
+                                    const updated = prev.filter(r => r.id !== item.originalRegulation.id);
+                                    localStorage.setItem("corporate_imported_rule_docs", JSON.stringify(updated));
+                                    return updated;
+                                  });
+                                }}
+                                className="p-2 hover:bg-mck-bg text-mck-navy/40 hover:text-mck-red"
+                                title="删除"
+                              >
+                                <Trash2 size={18} />
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button 
+                                onClick={() => { setCurrentItem(item); setIsEditing(true); }}
+                                className="p-2 hover:bg-mck-bg text-mck-navy/40 hover:text-mck-blue"
+                              >
+                                <Edit3 size={18} />
+                              </button>
+                              <button 
+                                onClick={() => handleDelete(item.id)}
+                                className="p-2 hover:bg-mck-bg text-mck-navy/40 hover:text-mck-red"
+                              >
+                                <Trash2 size={18} />
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </React.Fragment>
-            )}
+                  ))}
+                </React.Fragment>
+              );
+            })()}
           </div>
         </div>
       </div>
+      )}
+
+      {/* 导入制度文件预览弹窗 */}
+      {previewRegulation && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-3xl max-h-[85vh] rounded-xl shadow-2xl flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-green-200 bg-green-50 rounded-t-xl">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-green-100 flex items-center justify-center">
+                  <FileText size={20} className="text-green-600" />
+                </div>
+                <div>
+                  <h3 className="font-medium text-green-800">{previewRegulation.name}</h3>
+                  <p className="text-[10px] text-green-600/60">制度文件</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setPreviewRegulation(null)}
+                className="p-2 hover:bg-green-100 rounded-full"
+              >
+                <X size={20} className="text-green-600" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6">
+              <pre className="whitespace-pre-wrap text-sm text-mck-navy/80 leading-relaxed font-sans">
+                {previewRegulation.content}
+              </pre>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
