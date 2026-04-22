@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CorporatePolicy>
+    <Header>
+        <Logo src="image_placeholder.png" alt="智理·三会 CORPORATE GOVERNANCE AI" />
+        <Title>某股份有限公司投资者关系管理制度</Title>
+    </Header>
+
+    <MainBody>
+        <Chapter id="1" name="总则">
+            <Article id="1">为进一步完善某股份有限公司（以下简称“公司”）治理结构，规范公司投资者关系工作，加强公司与投资者之间的沟通，根据《中华人民共和国公司法》《中华人民共和国证券法》及公司股票上市地证券监管规则和公司章程，制定本制度。</Article>
+            <Article id="2">投资者关系管理是指公司通过便利股东权利行使、信息披露、互动交流和诉求处理等工作，增进投资者对公司的了解和认同，实现尊重、回报和保护投资者的相关活动。</Article>
+            <Article id="3">控股股东、实际控制人及董事、高级管理人员应当高度重视、积极参与和支持投资者关系管理工作。</Article>
+        </Chapter>
+
+        <Chapter id="2" name="基本原则与内容">
+            <Article id="4">管理应遵循合规性、平等性、主动性和诚实守信原则，确保信息公平、公开。</Article>
+            <Article id="5">沟通内容包括但不限于：公司的发展战略、经营状况、新产品技术、财务状况、分红政策、重大事项、公司文化及环境保护等投资者关心的信息。</Article>
+        </Chapter>
+
+        <Chapter id="3" name="组织与职责">
+            <Article id="6">董事会秘书为公司投资者关系管理负责人。董事会办公室为专职管理部门，具体负责管理、运行和维护相关沟通渠道。</Article>
+            <Article id="7">职责包括：拟定管理制度、组织沟通活动、处理咨询投诉、管理互动平台、保障股东权利、配合投资者保护机构开展工作等。</Article>
+        </Chapter>
+
+        <Chapter id="4" name="沟通渠道与活动管理">
+            <Article id="8">沟通渠道包括：年度报告及其他公告、股东会、业绩说明会、路演、互动平台、公司官网、投资者热线和电子邮箱等。</Article>
+            <Article id="9">公司接待投资者调研应采取必要的信息隔离措施。除得到明确授权外，其他员工不得在活动中代表公司发言。</Article>
+        </Chapter>
+
+        <Chapter id="5" name="附则">
+            <Article id="10">本制度由公司董事会负责解释，自发布之日起施行。</Article>
+        </Chapter>
+    </MainBody>
+
+    <Footer>
+        <Issuer>某股份有限公司</Issuer>
+        <Date>2025年12月</Date>
+    </Footer>
+</CorporatePolicy>

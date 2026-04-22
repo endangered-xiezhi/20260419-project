@@ -14,6 +14,171 @@ const xmlFiles: Record<string, string> = {
   proposal: '/文书xml/会议类/议案.xml',
 };
 
+// 制度文件XML映射：模板id -> XML文件名
+export const regulationXmlFiles: Record<string, string> = {
+  internal_audit: '某股份有限公司内部审计制度.xml',
+  fund_management: '某股份有限公司募集资金管理制度.xml',
+  hedging_risk: '某股份有限公司套期保值业务内部控制及风险管理制度.xml',
+  info_reporting: '某股份有限公司对外信息报送和使用管理制度.xml',
+  investment: '某股份有限公司对外投资管理制度.xml',
+  donation: '某股份有限公司对外捐赠管理制度.xml',
+  market_cap: '某股份有限公司市值管理制度.xml',
+  error_accountability: '某股份有限公司年报信息披露重大差错责任追究制度.xml',
+  investor_relations: '某股份有限公司投资者关系管理制度.xml',
+  independent_director: '某股份有限公司独立董事工作制度(草案).xml',
+  shares_management: '某股份有限公司董事、监事、高级管理人员所持公司股份及其变动管理制度(草案).xml',
+  monetary_funds: '某股份有限公司货币资金管理制度.xml',
+  controlling_shareholder: '某股份有限公司防范控股股东及其关联方资金占用制度.xml',
+  insider_registration: '某股份有限公司内幕信息知情人登记管理制度.xml',
+};
+
+// 解析制度文件XML为格式化文本
+const parseRegulationXml = (xml: string, companyName: string): string[] => {
+  const paragraphs: string[] = [];
+  
+  // 移除XML声明
+  let content = xml.replace(/<\?xml[^>]*\?>/g, '');
+  
+  // 替换公司名称
+  content = content.replace(/某股份有限公司/g, companyName);
+  
+  // 解析标题
+  const titleMatch = content.match(/<Title>(.*?)<\/Title>/);
+  if (titleMatch) {
+    paragraphs.push(`【${titleMatch[1]}】`);
+  }
+  
+  // 解析章节和条款
+  const chapterRegex = /<Chapter id="(\d+)" name="([^"]+)">([\s\S]*?)<\/Chapter>/g;
+  let chapterMatch;
+  while ((chapterMatch = chapterRegex.exec(content)) !== null) {
+    const chapterName = chapterMatch[2];
+    const chapterContent = chapterMatch[3];
+    
+    // 添加章节标题（加粗标记）
+    paragraphs.push(`\n【${chapterName}】`);
+    
+    // 解析条款
+    const articleRegex = /<Article id="(\d+)">(.*?)<\/Article>/gs;
+    let articleMatch;
+    while ((articleMatch = articleRegex.exec(chapterContent)) !== null) {
+      let articleText = articleMatch[2];
+      // 解析子条款
+      const clauseRegex = /\(（[一二三四五六七八九十]+）\)/g;
+      articleText = articleText.replace(/\(（[一二三四五六七八九十零百千万]+）\)/g, (match) => {
+        return match.replace(/（/g, '（').replace(/）/g, '）');
+      });
+      // 移除Clause标签但保留格式
+      articleText = articleText.replace(/<Clause>/g, '\n    ');
+      articleText = articleText.replace(/<\/Clause>/g, '');
+      // 移除多余标签
+      articleText = articleText.replace(/<[^>]+>/g, '');
+      // 清理多余空白
+      articleText = articleText.replace(/\s+/g, ' ').trim();
+      
+      if (articleText) {
+        paragraphs.push(`第${articleMatch[1]}条 ${articleText}`);
+      }
+    }
+  }
+  
+  // 解析底部信息
+  const issuerMatch = content.match(/<Issuer>(.*?)<\/Issuer>/);
+  const dateMatch = content.match(/<Date>(.*?)<\/Date>/);
+  if (issuerMatch && dateMatch) {
+    paragraphs.push(`\n${issuerMatch[1]}`);
+    paragraphs.push(`${dateMatch[1]}`);
+  }
+  
+  return paragraphs.filter(p => p.trim());
+};
+
+// 生成制度文件Word文档
+export const generateRegulationWord = async (
+  templateId: string,
+  companyName: string,
+  templateName: string
+): Promise<Blob> => {
+  const xmlFileName = regulationXmlFiles[templateId];
+  if (!xmlFileName) {
+    throw new Error(`未找到模板ID: ${templateId}`);
+  }
+  
+  const xmlPath = `/文书xml/制度类/${xmlFileName}`;
+  
+  try {
+    // 获取XML文件
+    const response = await fetch(xmlPath);
+    if (!response.ok) {
+      throw new Error('制度文件XML不存在');
+    }
+    const xmlContent = await response.text();
+    
+    // 解析XML
+    const paragraphs = parseRegulationXml(xmlContent, companyName);
+    
+    // 生成Word文档
+    const doc = new Document({
+      sections: [{
+        properties: {},
+        children: paragraphs.map((text, index) => {
+          // 判断是否为章节标题
+          const isChapterTitle = text.includes('【') && text.includes('】') && !text.includes('第');
+          // 判断是否为文件标题
+          const isDocTitle = index === 0 && text.includes('【');
+          
+          if (isDocTitle) {
+            return new Paragraph({
+              children: [new TextRun({ text: text.replace(/【|】/g, ''), bold: true, size: 36 })],
+              alignment: AlignmentType.CENTER,
+              spacing: { after: 400 },
+            });
+          } else if (isChapterTitle) {
+            return new Paragraph({
+              children: [new TextRun({ text: text.replace(/【|】/g, ''), bold: true, size: 28 })],
+              spacing: { before: 400, after: 200 },
+            });
+          } else if (text.includes('第') && text.includes('条')) {
+            return new Paragraph({
+              children: [new TextRun({ text: text, size: 24 })],
+              spacing: { after: 200 },
+              indent: { left: 360 },
+            });
+          } else {
+            return new Paragraph({
+              children: [new TextRun({ text: text, size: 24 })],
+              spacing: { after: 200 },
+            });
+          }
+        }),
+      }],
+    });
+    
+    return await Packer.toBlob(doc);
+  } catch (error) {
+    // 如果XML文件不存在，使用备用格式生成
+    const doc = new Document({
+      sections: [{
+        properties: {},
+        children: [
+          new Paragraph({
+            children: [new TextRun({ text: `${companyName}${templateName}`, bold: true, size: 36 })],
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 400 },
+          }),
+          new Paragraph({
+            children: [new TextRun({ text: '（制度文件内容）', size: 24 })],
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 200 },
+          }),
+        ],
+      }],
+    });
+    
+    return await Packer.toBlob(doc);
+  }
+};
+
 // 简单解析XML文本
 const parseSimpleXml = (xml: string): { text: string; tables: any[] } => {
   const tables: any[] = [];

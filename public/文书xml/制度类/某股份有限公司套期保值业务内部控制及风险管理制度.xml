@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CorporatePolicy>
+    <Header>
+        <Logo src="image_placeholder.png" alt="智理·三会 CORPORATE GOVERNANCE AI" />
+        <Title>某股份有限公司套期保值业务内部控制及风险管理制度</Title>
+    </Header>
+
+    <MainBody>
+        <Chapter id="1" name="总则">
+            <Article id="1">为规范某股份有限公司（以下简称“公司”）及下属子公司套期保值业务，有效防范和控制风险，加强对套期保值业务的管理，根据《中华人民共和国公司法》《上市公司信息披露管理办法》、公司股票上市地证券监管规则及《某股份有限公司章程》（以下简称“公司章程”）等有关规定，制定本制度。</Article>
+            <Article id="2">本制度所称套期保值业务包括金融衍生品套期保值业务及商品期货套期保值业务：
+                <Clause>（一）金融衍生品业务是指为规避汇率或利率风险而开展的远期结售汇、外汇掉期、期权、互换等业务；</Clause>
+                <Clause>（二）商品期货业务是指以规避商品价格风险为目的，从事买进或卖出交易所期货、远期、互换或标准化期权合约等交易活动。</Clause>
+            </Article>
+            <Article id="3">本制度适用于公司及下属的全资子公司、控股子公司。套期保值业务应坚持审慎原则，以正常生产经营为基础，以防范风险为目的，严禁进行投机交易。</Article>
+        </Chapter>
+
+        <Chapter id="2" name="组织机构与职责分工">
+            <Article id="4">公司董事会是套期保值业务的决策机构，负责批准年度交易方案及额度限制。超过董事会权限的，须报股东会审议。</Article>
+            <Article id="5">公司成立套期保值业务领导小组，负责相关事项的审议和决策。下设工作小组负责具体方案制订和交易操作。</Article>
+            <Article id="6">公司审计部应定期对套期保值业务的规范性、内控机制的有效性进行内部审计，至少每半年应对业务事项进展情况进行一次检查，并向审计委员会报告。</Article>
+        </Chapter>
+
+        <Chapter id="3" name="业务流程与决策权限">
+            <Article id="7">开展套期保值业务前，必须进行可行性分析。交易人员应根据经审批的方案执行，严禁超授权范围操作。相关合同和交易指令应由授权人员签署。</Article>
+        </Chapter>
+
+        <Chapter id="4" name="信息隔离与风险管理">
+            <Article id="8">参与套期保值业务的所有人员及合作机构须遵守公司保密制度。未经允许不得泄露方案、交易情况、结算情况及资金状况等信息。</Article>
+            <Article id="9">业务操作环节应相互独立，相关人员相互独立。不得由单人负责业务操作的全部流程，由审计部负责监督。</Article>
+        </Chapter>
+
+        <Chapter id="5" name="附则">
+            <Article id="10">本制度由公司董事会负责解释和修订，自发布之日起施行。</Article>
+        </Chapter>
+    </MainBody>
+
+    <Footer>
+        <Issuer>某股份有限公司</Issuer>
+        <Date>2026年3月</Date>
+    </Footer>
+</CorporatePolicy>

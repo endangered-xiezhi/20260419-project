@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { FileText, Download, Printer, Check, Edit3, Save, X, FileCheck, Plus, ChevronDown, ChevronRight, FolderOpen, Eye, Clock, History, Sparkles, File, Loader2, AlertCircle, Trash2, Users, Calendar, FileDown, Mail, Send, Undo2, ShieldCheck, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { generateWordDocument } from "@/utils/documentGenerator";
+import { generateWordDocument, generateRegulationWord } from "@/utils/documentGenerator";
 
 // 一级分类类型：会议文件 / 制度文件
 type DocumentLevel1Category = 'meeting' | 'regulation';
@@ -1520,10 +1520,24 @@ export const DocumentCenter: React.FC<DocumentCenterProps> = ({ meetingId, editE
   const [previewDoc, setPreviewDoc] = useState<GeneratedDocument | null>(null);
   const [showComingSoon, setShowComingSoon] = useState(false);
   const [formTemplate, setFormTemplate] = useState<DocumentTemplate | null>(null);
+  // 制度文件编辑弹窗状态
+  const [showRegulationEditor, setShowRegulationEditor] = useState(false);
+  const [regulationEditContent, setRegulationEditContent] = useState('');
+  const [regulationEditDoc, setRegulationEditDoc] = useState<GeneratedDocument | null>(null);
   // 合规审查结果状态
   const [complianceResults, setComplianceResults] = useState<Record<string, ComplianceResult>>(() => {
     const saved = localStorage.getItem("corporate_doc_compliance_results");
     return saved ? JSON.parse(saved) : {};
+  });
+  // 导入规则文件库弹窗状态
+  const [showImportRuleLibrary, setShowImportRuleLibrary] = useState(false);
+  const [ruleLibraryDocToImport, setRuleLibraryDocToImport] = useState<GeneratedDocument | null>(null);
+  // 导入成功提示状态
+  const [showImportSuccess, setShowImportSuccess] = useState(false);
+  // 已导入规则文件库的制度文件列表
+  const [importedRuleDocs, setImportedRuleDocs] = useState<GeneratedDocument[]>(() => {
+    const saved = localStorage.getItem("corporate_imported_rule_docs");
+    return saved ? JSON.parse(saved) : [];
   });
 
   // 监听合规审查完成事件，更新审查结果
@@ -1757,13 +1771,203 @@ ${new Date().toLocaleDateString('zh-CN')}`,
     setSelectedTemplate(null);
   };
 
-  // 处理制度文件生成点击
-  const handleRegulationGenerateClick = (template: DocumentTemplate) => {
+  // 处理制度文件生成点击 - 弹出编辑框
+  const handleRegulationGenerateClick = async (template: DocumentTemplate) => {
     if (!regulationTitle.trim()) {
-      alert('请先输入制度文件名称');
+      alert('请先输入公司名称');
       return;
     }
-    setSelectedTemplate(template);
+
+    // 显示加载提示
+    const loadingToast = document.createElement('div');
+    loadingToast.className = 'fixed top-4 right-4 bg-mck-blue text-white px-4 py-2 rounded-lg shadow-lg z-50 flex items-center gap-2';
+    loadingToast.innerHTML = '<span class="animate-spin">⟳</span> 正在生成制度文件...';
+    document.body.appendChild(loadingToast);
+
+    try {
+      // 获取XML文件并解析为可编辑文本
+      const xmlFileName = (await import('@/utils/documentGenerator')).regulationXmlFiles[template.id];
+      const xmlPath = `/文书xml/制度类/${xmlFileName}`;
+      const response = await fetch(xmlPath);
+      
+      if (!response.ok) {
+        throw new Error('制度文件XML不存在');
+      }
+      
+      const xmlContent = await response.text();
+      
+      // 解析XML为格式化的可编辑文本
+      const paragraphs = parseRegulationXmlForEdit(xmlContent, regulationTitle);
+      const content = paragraphs.join('\n\n');
+
+      // 创建临时文档记录（未保存状态）
+      const tempDoc: GeneratedDocument = {
+        id: `temp-${Date.now()}-${template.id}`,
+        name: `${regulationTitle}${template.name}`,
+        type: template.id,
+        typeName: template.name,
+        meetingTitle: regulationTitle,
+        level1Category: 'regulation',
+        level2Category: template.id as RegulationCategory,
+        date: new Date().toLocaleDateString('zh-CN'),
+        content: content,
+        formData: { companyName: regulationTitle }
+      };
+
+      // 打开编辑弹窗
+      setRegulationEditDoc(tempDoc);
+      setRegulationEditContent(content);
+      setShowRegulationEditor(true);
+
+      // 移除加载提示
+      loadingToast.remove();
+
+    } catch (error) {
+      console.error('生成制度文件失败:', error);
+      loadingToast.className = 'fixed top-4 right-4 bg-red-500 text-white px-4 py-2 rounded-lg shadow-lg z-50';
+      loadingToast.textContent = '✗ 生成失败，请重试';
+      setTimeout(() => loadingToast.remove(), 2000);
+    }
+  };
+
+  // 解析制度文件XML为可编辑文本（用于编辑弹窗）
+  const parseRegulationXmlForEdit = (xml: string, companyName: string): string[] => {
+    const paragraphs: string[] = [];
+    
+    // 移除XML声明
+    let content = xml.replace(/<\?xml[^>]*\?>/g, '');
+    
+    // 替换公司名称
+    content = content.replace(/某股份有限公司/g, companyName);
+    
+    // 解析标题
+    const titleMatch = content.match(/<Title>(.*?)<\/Title>/);
+    if (titleMatch) {
+      paragraphs.push(`【${titleMatch[1]}】`);
+    }
+    
+    // 解析章节和条款
+    const chapterRegex = /<Chapter id="(\d+)" name="([^"]+)">([\s\S]*?)<\/Chapter>/g;
+    let chapterMatch;
+    while ((chapterMatch = chapterRegex.exec(content)) !== null) {
+      const chapterName = chapterMatch[2];
+      const chapterContent = chapterMatch[3];
+      
+      // 添加章节标题
+      paragraphs.push(`【${chapterName}】`);
+      
+      // 解析条款
+      const articleRegex = /<Article id="(\d+)">(.*?)<\/Article>/gs;
+      let articleMatch;
+      while ((articleMatch = articleRegex.exec(chapterContent)) !== null) {
+        let articleText = articleMatch[2];
+        // 解析子条款
+        articleText = articleText.replace(/<Clause>/g, '\n    ');
+        articleText = articleText.replace(/<\/Clause>/g, '');
+        // 移除多余标签
+        articleText = articleText.replace(/<[^>]+>/g, '');
+        // 清理多余空白
+        articleText = articleText.replace(/\s+/g, ' ').trim();
+        
+        if (articleText) {
+          paragraphs.push(`第${articleMatch[1]}条 ${articleText}`);
+        }
+      }
+    }
+    
+    // 解析底部信息
+    const issuerMatch = content.match(/<Issuer>(.*?)<\/Issuer>/);
+    const dateMatch = content.match(/<Date>(.*?)<\/Date>/);
+    if (issuerMatch && dateMatch) {
+      paragraphs.push(`\n${issuerMatch[1]}`);
+      paragraphs.push(`${dateMatch[1]}`);
+    }
+    
+    return paragraphs.filter(p => p.trim());
+  };
+
+  // 保存制度文件
+  const handleRegulationSave = () => {
+    if (!regulationEditDoc) return;
+    
+    const savedDoc: GeneratedDocument = {
+      ...regulationEditDoc,
+      id: `doc-${Date.now()}`,
+      content: regulationEditContent
+    };
+    
+    setGeneratedDocs(prev => [savedDoc, ...prev]);
+    setShowRegulationEditor(false);
+    setRegulationEditDoc(null);
+    setRegulationEditContent('');
+    
+    // 显示"已保存"提示
+    const toast = document.createElement('div');
+    toast.className = 'fixed top-4 right-4 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 flex items-center gap-2';
+    toast.innerHTML = '<span>✓</span> 已保存';
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2000);
+  };
+
+  // 导出制度文件为Word
+  const handleRegulationExport = async () => {
+    if (!regulationEditDoc) return;
+    
+    try {
+      const blob = await generateRegulationWord(
+        regulationEditDoc.type, 
+        regulationEditDoc.meetingTitle, 
+        regulationEditDoc.typeName
+      );
+      
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${regulationEditDoc.name}.docx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('导出失败:', error);
+      alert('导出失败，请重试');
+    }
+  };
+
+  // 打开导入规则文件库确认弹窗
+  const handleOpenImportRuleLibrary = (doc: GeneratedDocument) => {
+    setRuleLibraryDocToImport(doc);
+    setShowImportRuleLibrary(true);
+  };
+
+  // 确认导入规则文件库
+  const handleConfirmImportRuleLibrary = () => {
+    if (!ruleLibraryDocToImport) return;
+    
+    // 添加到导入的规则文件列表
+    const newRuleDoc: GeneratedDocument = {
+      ...ruleLibraryDocToImport,
+      id: `rule-${Date.now()}`,
+      content: ruleLibraryDocToImport.content
+    };
+    
+    const updatedRuleDocs = [newRuleDoc, ...importedRuleDocs];
+    setImportedRuleDocs(updatedRuleDocs);
+    localStorage.setItem("corporate_imported_rule_docs", JSON.stringify(updatedRuleDocs));
+    
+    // 关闭确认弹窗
+    setShowImportRuleLibrary(false);
+    setRuleLibraryDocToImport(null);
+    
+    // 显示导入成功提示
+    setShowImportSuccess(true);
+    setTimeout(() => setShowImportSuccess(false), 2000);
+  };
+
+  // 取消导入规则文件库
+  const handleCancelImportRuleLibrary = () => {
+    setShowImportRuleLibrary(false);
+    setRuleLibraryDocToImport(null);
   };
 
   const handleGenerateClick = (template: DocumentTemplate) => {
@@ -1833,7 +2037,17 @@ ${new Date().toLocaleDateString('zh-CN')}`,
   const handleDownload = async (doc: GeneratedDocument) => {
     // 使用Word文档生成器
     try {
-      const blob = await generateWordDocument(doc.type, doc.meetingTitle, doc.formData);
+      let blob: Blob;
+      
+      // 判断是否为制度文件
+      if (doc.level1Category === 'regulation') {
+        // 制度文件：使用 generateRegulationWord
+        blob = await generateRegulationWord(doc.type, doc.meetingTitle, doc.typeName);
+      } else {
+        // 会议文件：使用 generateWordDocument
+        blob = await generateWordDocument(doc.type, doc.meetingTitle, doc.formData);
+      }
+      
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -1902,7 +2116,10 @@ ${new Date().toLocaleDateString('zh-CN')}`,
   const groupedByMeeting = useMemo(() => {
     const groups: Record<string, { docs: GeneratedDocument[], emails: EmailDocument[] }> = {};
     
+    // 只处理会议文件，排除制度文件
     generatedDocs.forEach(doc => {
+      if (doc.level1Category === 'regulation') return; // 跳过制度文件
+      
       const key = doc.meetingTitle;
       if (!groups[key]) {
         groups[key] = { docs: [], emails: [] };
@@ -2720,6 +2937,75 @@ ${email.body}`;
         </div>
       )}
 
+      {/* 制度文件编辑弹窗 */}
+      {showRegulationEditor && regulationEditDoc && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-4xl h-[85vh] rounded-xl shadow-2xl flex flex-col">
+            {/* 标题栏 - 绿色主题 */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-green-200 bg-green-50 rounded-t-xl">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-green-100 flex items-center justify-center">
+                  <FileText size={20} className="text-green-600" />
+                </div>
+                <div>
+                  <h3 className="font-medium text-green-800">{regulationEditDoc.name}</h3>
+                  <p className="text-[10px] text-green-600/60">制度文件编辑</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                {/* 撤回按钮 */}
+                <button
+                  onClick={() => {
+                    setShowRegulationEditor(false);
+                    setRegulationEditDoc(null);
+                    setRegulationEditContent('');
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-600 text-xs font-bold hover:bg-gray-200 transition-all"
+                >
+                  <Undo2 size={14} />
+                  撤回
+                </button>
+                {/* 保存按钮 */}
+                <button
+                  onClick={handleRegulationSave}
+                  className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-xs font-bold hover:bg-green-700 transition-all"
+                >
+                  <Save size={14} />
+                  保存
+                </button>
+                {/* 导出按钮 */}
+                <button
+                  onClick={handleRegulationExport}
+                  className="flex items-center gap-2 px-4 py-2 bg-mck-blue text-white text-xs font-bold hover:bg-mck-navy transition-all"
+                >
+                  <FileDown size={14} />
+                  导出Word
+                </button>
+                <button 
+                  onClick={() => {
+                    setShowRegulationEditor(false);
+                    setRegulationEditDoc(null);
+                    setRegulationEditContent('');
+                  }}
+                  className="p-2 hover:bg-green-100 rounded-full"
+                >
+                  <X size={20} className="text-green-600" />
+                </button>
+              </div>
+            </div>
+            {/* 编辑区域 */}
+            <div className="flex-1 overflow-auto p-6 bg-mck-bg/30">
+              <textarea
+                value={regulationEditContent}
+                onChange={(e) => setRegulationEditContent(e.target.value)}
+                className="w-full h-full min-h-[500px] p-4 text-sm leading-relaxed text-mck-navy/80 bg-white border border-green-200 rounded-lg resize-none focus:outline-none focus:border-green-500 font-sans"
+                placeholder="在此编辑制度文件内容..."
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       <header className="flex items-center justify-between">
         <div>
           <h2 className="text-3xl font-serif font-bold text-mck-navy">文书中心</h2>
@@ -2983,13 +3269,13 @@ ${email.body}`;
             <div className="animate-in fade-in duration-300">
               <div className="mb-6">
                 <h4 className="text-xs font-bold uppercase tracking-widest text-mck-navy/60 mb-3">
-                  制度文件名称
+                  制度文件
                 </h4>
                 <input
                   type="text"
                   value={regulationTitle}
                   onChange={(e) => setRegulationTitle(e.target.value)}
-                  placeholder="请输入制度文件名称，如：某股份有限公司内部审计制度"
+                  placeholder="请输入公司全称，如：XX股份有限公司"
                   className="w-full px-4 py-3 border border-mck-border rounded-lg focus:outline-none focus:border-mck-blue text-sm"
                 />
               </div>
@@ -3007,12 +3293,12 @@ ${email.body}`;
                       className={cn(
                         "p-4 border rounded-lg transition-all text-left",
                         regulationTitle.trim()
-                          ? "border-green-200 hover:border-green-500 hover:bg-green-50 cursor-pointer"
+                          ? "border-mck-border hover:border-mck-blue hover:bg-mck-blue/5 cursor-pointer"
                           : "border-mck-border/50 bg-mck-bg/30 cursor-not-allowed opacity-50"
                       )}
                     >
                       <div className="flex items-start gap-2">
-                        <FileText size={14} className="text-green-600 shrink-0 mt-0.5" />
+                        <FileText size={14} className="text-mck-navy/60 shrink-0 mt-0.5" />
                         <span className="text-sm font-medium text-mck-navy">{template.name}</span>
                       </div>
                     </button>
@@ -3020,7 +3306,7 @@ ${email.body}`;
                 </div>
                 {!regulationTitle.trim() && (
                   <p className="text-xs text-mck-navy/40 mt-3 text-center">
-                    请先输入制度文件名称后再生成
+                    请先输入公司名称后再生成
                   </p>
                 )}
               </div>
@@ -3036,7 +3322,7 @@ ${email.body}`;
             <div className="flex items-center gap-2">
               <FolderOpen size={16} className="text-green-600" />
               <span className="font-bold text-mck-navy text-sm">在线文件夹</span>
-              <span className="text-[10px] text-mck-navy/40">共{generatedDocs.length}份文书 / {emails.length}封邮件</span>
+              <span className="text-[10px] text-mck-navy/40">共{generatedDocs.length}份文书 / {importedRuleDocs.length}份制度 / {emails.length}封邮件</span>
             </div>
           </div>
 
@@ -3127,6 +3413,13 @@ ${email.body}`;
                                 </>
                               ) : (
                                 <>
+                                  <button onClick={() => {
+                                    setRegulationEditDoc(doc);
+                                    setRegulationEditContent(doc.content || '');
+                                    setShowRegulationEditor(true);
+                                  }} className="p-1 hover:bg-mck-blue/10 rounded" title="编辑">
+                                    <Edit3 size={12} className="text-mck-navy/60" />
+                                  </button>
                                   <button onClick={() => setPreviewDoc(doc)} className="p-1 hover:bg-mck-blue/10 rounded" title="预览">
                                     <Eye size={12} className="text-mck-navy/60" />
                                   </button>
@@ -3171,12 +3464,19 @@ ${email.body}`;
                               <button 
                                 onClick={() => { setEditingEmail(email); setShowEmailEditor(true); }} 
                                 className="p-1 hover:bg-mck-blue/10 rounded" 
-                                title="查看/编辑"
+                                title="编辑"
+                              >
+                                <Edit3 size={12} className="text-mck-navy/60" />
+                              </button>
+                              <button 
+                                onClick={() => { setEditingEmail(email); setShowEmailEditor(true); }} 
+                                className="p-1 hover:bg-mck-blue/10 rounded" 
+                                title="预览"
                               >
                                 <Eye size={12} className="text-mck-navy/60" />
                               </button>
-                              <button onClick={() => handleEmailExport(email)} className="p-1 hover:bg-mck-blue/10 rounded" title="导出">
-                                <Download size={12} className="text-mck-blue" />
+                              <button onClick={() => handleEmailExport(email)} className="p-1 hover:bg-mck-blue/10 rounded" title="下载">
+                                <FileDown size={12} className="text-mck-blue" />
                               </button>
                               <button 
                                 onClick={() => setEmails(prev => prev.filter(e => e.id !== email.id))} 
@@ -3195,6 +3495,199 @@ ${email.body}`;
               );
             })}
           </div>
+
+          {/* 制度文件分组 - 绿色表头 */}
+          {(() => {
+            const regulationDocs = generatedDocs.filter(doc => doc.level1Category === 'regulation');
+            if (regulationDocs.length === 0) return null;
+            
+            return (
+              <div className="border border-mck-border rounded mt-4">
+                {/* 制度文件标题行 - 绿色背景 */}
+                <div className="flex items-center justify-between px-3 py-2 bg-green-600 text-white rounded-t">
+                  <div className="flex items-center gap-2">
+                    <FolderOpen size={12} />
+                    <span className="text-xs font-bold">制度文件</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-[10px] opacity-80">
+                    <span>{regulationDocs.length}份制度文件</span>
+                  </div>
+                </div>
+                
+                {/* 表格内容 - 与会议文件样式一致 */}
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-mck-bg/50 text-mck-navy/60">
+                      <th className="px-3 py-1.5 text-left font-medium w-24">制度类型</th>
+                      <th className="px-3 py-1.5 text-left font-medium">文件名</th>
+                      <th className="px-3 py-1.5 text-left font-medium w-20">日期</th>
+                      <th className="px-3 py-1.5 text-center font-medium w-20">合规审查</th>
+                      <th className="px-3 py-1.5 text-center font-medium w-36">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-mck-border/30">
+                    {regulationDocs.map(doc => (
+                      <tr key={doc.id} className="hover:bg-mck-bg/30">
+                        <td className="px-3 py-1.5">
+                          <div className="flex items-center gap-1">
+                            <FileText size={12} className="text-mck-navy/60" />
+                            <span className="text-mck-navy/60">
+                              {doc.typeName}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-3 py-1.5 text-mck-navy">{doc.name}</td>
+                        <td className="px-3 py-1.5 text-mck-navy/40">{doc.date}</td>
+                        <td className="px-3 py-1.5 text-center">
+                          <span className="text-gray-400 text-xs font-bold">/</span>
+                        </td>
+                        <td className="px-3 py-1.5">
+                          <div className="flex items-center justify-center gap-1">
+                            <button onClick={() => {
+                              setRegulationEditDoc(doc);
+                              setRegulationEditContent(doc.content || '');
+                              setShowRegulationEditor(true);
+                            }} className="p-1 hover:bg-mck-blue/10 rounded" title="编辑">
+                              <Edit3 size={12} className="text-mck-navy/60" />
+                            </button>
+                            <button onClick={() => setPreviewDoc(doc)} className="p-1 hover:bg-mck-blue/10 rounded" title="预览">
+                              <Eye size={12} className="text-mck-navy/60" />
+                            </button>
+                            <button onClick={() => handleDownload(doc)} className="p-1 hover:bg-mck-blue/10 rounded" title="下载">
+                              <FileDown size={12} className="text-mck-blue" />
+                            </button>
+                            <button onClick={() => handleOpenImportRuleLibrary(doc)} className="p-1 hover:bg-green-50 rounded" title="导入规则文件库">
+                              <Upload size={12} className="text-green-600" />
+                            </button>
+                            <button onClick={() => handleDelete(doc.id)} className="p-1 hover:bg-red-50 rounded" title="删除">
+                              <Trash2 size={12} className="text-red-400" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
+
+          {/* 规则文件库分组 - 紫色表头 */}
+          {(() => {
+            if (importedRuleDocs.length === 0) return null;
+            
+            return (
+              <div className="border border-mck-border rounded mt-4">
+                {/* 规则文件库标题行 - 紫色背景 */}
+                <div className="flex items-center justify-between px-3 py-2 bg-purple-600 text-white rounded-t">
+                  <div className="flex items-center gap-2">
+                    <FileText size={12} />
+                    <span className="text-xs font-bold">公司章程制度</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-[10px] opacity-80">
+                    <span>{importedRuleDocs.length}份制度文件</span>
+                  </div>
+                </div>
+                
+                {/* 表格内容 - 与会议文件样式一致 */}
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-mck-bg/50 text-mck-navy/60">
+                      <th className="px-3 py-1.5 text-left font-medium w-24">制度类型</th>
+                      <th className="px-3 py-1.5 text-left font-medium">文件名</th>
+                      <th className="px-3 py-1.5 text-left font-medium w-20">日期</th>
+                      <th className="px-3 py-1.5 text-center font-medium w-20">合规审查</th>
+                      <th className="px-3 py-1.5 text-center font-medium w-36">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-mck-border/30">
+                    {importedRuleDocs.map(doc => (
+                      <tr key={doc.id} className="hover:bg-mck-bg/30">
+                        <td className="px-3 py-1.5">
+                          <div className="flex items-center gap-1">
+                            <FileText size={12} className="text-mck-navy/60" />
+                            <span className="text-mck-navy/60">
+                              {doc.typeName}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-3 py-1.5 text-mck-navy">{doc.name}</td>
+                        <td className="px-3 py-1.5 text-mck-navy/40">{doc.date}</td>
+                        <td className="px-3 py-1.5 text-center">
+                          <span className="text-gray-400 text-xs font-bold">/</span>
+                        </td>
+                        <td className="px-3 py-1.5">
+                          <div className="flex items-center justify-center gap-1">
+                            <button onClick={() => {
+                              setRegulationEditDoc(doc);
+                              setRegulationEditContent(doc.content || '');
+                              setShowRegulationEditor(true);
+                            }} className="p-1 hover:bg-purple-50 rounded" title="编辑">
+                              <Edit3 size={12} className="text-purple-600" />
+                            </button>
+                            <button onClick={() => setPreviewDoc(doc)} className="p-1 hover:bg-mck-blue/10 rounded" title="预览">
+                              <Eye size={12} className="text-mck-navy/60" />
+                            </button>
+                            <button onClick={() => handleDownload(doc)} className="p-1 hover:bg-mck-blue/10 rounded" title="下载">
+                              <FileDown size={12} className="text-mck-blue" />
+                            </button>
+                            <button onClick={() => {
+                              setImportedRuleDocs(prev => {
+                                const updated = prev.filter(d => d.id !== doc.id);
+                                localStorage.setItem("corporate_imported_rule_docs", JSON.stringify(updated));
+                                return updated;
+                              });
+                            }} className="p-1 hover:bg-red-50 rounded" title="删除">
+                              <Trash2 size={12} className="text-red-400" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* 导入规则文件库确认弹窗 */}
+      {showImportRuleLibrary && ruleLibraryDocToImport && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-md rounded-xl shadow-2xl p-6">
+            <div className="text-center">
+              <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Upload size={32} className="text-purple-600" />
+              </div>
+              <h3 className="text-lg font-bold text-mck-navy mb-2">确认导入规则文件库</h3>
+              <p className="text-sm text-mck-navy/60 mb-6">
+                确定要将「{ruleLibraryDocToImport.name}」导入到规则文件库中的「公司章程制度」板块吗？
+              </p>
+              <div className="flex items-center justify-center gap-3">
+                <button
+                  onClick={handleCancelImportRuleLibrary}
+                  className="px-6 py-2 bg-gray-100 text-gray-600 text-sm font-bold rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={handleConfirmImportRuleLibrary}
+                  className="px-6 py-2 bg-purple-600 text-white text-sm font-bold rounded-lg hover:bg-purple-700 transition-colors"
+                >
+                  确定
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 导入成功提示 */}
+      {showImportSuccess && (
+        <div className="fixed top-4 right-4 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 flex items-center gap-2">
+          <Check size={16} />
+          <span className="text-sm font-bold">导入成功</span>
         </div>
       )}
 
