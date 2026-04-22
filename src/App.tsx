@@ -628,7 +628,16 @@ export default function App() {
             <RecordingWorkspace 
               meetingId={selectedMeetingId} 
               onAnalysisComplete={handleGoToCompliance}
-              onNavigateToDocuments={() => setActiveTab("documents")}
+              onNavigateToDocuments={() => {
+                setActiveTab("documents");
+                // 延迟滚动到锚点，等待DOM渲染完成
+                setTimeout(() => {
+                  const element = document.getElementById("document-folder");
+                  if (element) {
+                    element.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }
+                }, 100);
+              }}
             />
           )}
           {activeTab === "compliance" && (

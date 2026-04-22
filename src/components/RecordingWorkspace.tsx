@@ -693,18 +693,22 @@ export const RecordingWorkspace: React.FC<RecordingWorkspaceProps> = ({ meetingI
                     value={importMeetingTitle}
                     onChange={(e) => setImportMeetingTitle(e.target.value)}
                     placeholder="输入或选择"
-                    className="w-full border border-mck-border px-3 py-2 text-sm rounded-lg focus:outline-none focus:border-green-500"
+                    className="w-full border border-mck-border px-3 py-2 pr-10 text-sm rounded-lg focus:outline-none focus:border-green-500"
                   />
                   {importMeetingHistory.length > 0 && (
                     <div className="relative">
                       <button
                         onClick={() => setShowHistoryDropdown(!showHistoryDropdown)}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-mck-navy/40 hover:text-mck-navy"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-mck-bg rounded"
+                        title="历史记录"
                       >
-                        <ChevronDown size={16} />
+                        <Clock size={16} className="text-mck-navy/40" />
                       </button>
                       {showHistoryDropdown && (
                         <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-mck-border rounded-lg shadow-lg z-10 max-h-40 overflow-auto">
+                          <div className="px-3 py-2 text-[10px] text-mck-navy/40 border-b border-mck-border">
+                            历史记录（点击选择）
+                          </div>
                           {importMeetingHistory.slice(0, 5).map((title, idx) => (
                             <button
                               key={idx}
@@ -798,22 +802,24 @@ export const RecordingWorkspace: React.FC<RecordingWorkspaceProps> = ({ meetingI
                   onClick={() => selectRecord(record)}
                   className={cn("p-3 rounded cursor-pointer transition-all group relative border", currentRecord?.id === record.id ? "bg-mck-blue/10 border-mck-blue/50" : "bg-white border-mck-border hover:border-mck-blue/30")}
                 >
-                  <div className="flex items-start gap-2">
+                  <div className="flex items-center gap-2">
                     <div className={cn("w-8 h-8 rounded flex items-center justify-center flex-shrink-0", record.hasAudio ? "bg-purple-100 text-purple-600" : "bg-mck-bg text-mck-navy/60")}>
                       {record.hasAudio ? <FileAudio size={16} /> : <FileText size={16} />}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-bold text-mck-navy truncate pr-5">{record.title}</p>
+                      <p className="text-xs font-bold text-mck-navy truncate pr-20">{record.title}</p>
                       <p className="text-[10px] text-mck-navy/50 mt-1">{formatDate(record.date)}</p>
                       {record.audioFileName && <p className="text-[10px] text-purple-500 truncate">🎤 {record.audioFileName}</p>}
                     </div>
                   </div>
-                  <div className="absolute top-2 right-2 flex items-center gap-1">
-                    <button onClick={(e) => openImportModal(record, e)} className="p-1 text-mck-navy/20 hover:text-green-600 opacity-0 group-hover:opacity-100 transition-opacity" title="导入文书中心">
+                  <div className="absolute top-1/2 -translate-y-1/2 right-2 flex items-center gap-2">
+                    <button onClick={(e) => openImportModal(record, e)} className="px-2 py-1.5 text-[10px] font-bold text-white bg-green-500 hover:bg-green-600 rounded transition-colors flex items-center gap-1" title="导入文书中心">
                       <UploadCloud size={12} />
+                      <span>导入</span>
                     </button>
-                    <button onClick={(e) => deleteRecord(record.id, e)} className="p-1 text-mck-navy/20 hover:text-mck-red opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={(e) => deleteRecord(record.id, e)} className="px-2 py-1.5 text-[10px] font-bold text-white bg-red-400 hover:bg-red-500 rounded transition-colors flex items-center gap-1">
                       <Trash2 size={12} />
+                      <span>删除</span>
                     </button>
                   </div>
                 </div>

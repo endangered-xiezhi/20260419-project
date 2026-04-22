@@ -3372,7 +3372,7 @@ ${email.body}`;
 
       {/* 在线文件夹 - 紧凑表格布局 */}
       {(generatedDocs.length > 0 || emails.length > 0) && (
-        <div className="mck-card">
+        <div className="mck-card" id="document-folder">
           <div className="flex items-center justify-between mb-4 pb-3 border-b border-mck-border">
             <div className="flex items-center gap-2">
               <FolderOpen size={16} className="text-green-600" />
