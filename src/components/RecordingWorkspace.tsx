@@ -780,7 +780,7 @@ export const RecordingWorkspace: React.FC<RecordingWorkspaceProps> = ({ meetingI
 
       {/* Normal Layout — 历史记录在上，编辑器和预览在下并列 */}
       <div className="flex flex-col gap-6">
-        {/* 历史记录 - 全宽显示 */}
+        {/* 历史记录 - 全宽显示，竖直排列 */}
         <div className="mck-card overflow-hidden">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-bold uppercase tracking-widest text-mck-navy/60 flex items-center gap-2">
@@ -789,7 +789,7 @@ export const RecordingWorkspace: React.FC<RecordingWorkspaceProps> = ({ meetingI
             <button onClick={createNewRecord} className="px-2 py-1 text-xs font-bold bg-mck-blue text-white hover:bg-mck-navy transition-all rounded">+ 新建</button>
           </div>
           
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-col gap-2">
             {records.length === 0 ? (
               <div className="w-full text-center py-4 text-mck-navy/40 text-xs">
                 <p>暂无会议纪要</p>
@@ -799,26 +799,24 @@ export const RecordingWorkspace: React.FC<RecordingWorkspaceProps> = ({ meetingI
                 <div
                   key={record.id}
                   onClick={() => selectRecord(record)}
-                  className={cn("p-3 rounded cursor-pointer transition-all group relative border min-w-[280px] flex-1", currentRecord?.id === record.id ? "bg-mck-blue/10 border-mck-blue/50" : "bg-white border-mck-border hover:border-mck-blue/30")}
+                  className={cn("p-3 rounded cursor-pointer transition-all group relative border", currentRecord?.id === record.id ? "bg-mck-blue/10 border-mck-blue/50" : "bg-white border-mck-border hover:border-mck-blue/30")}
                 >
                   <div className="flex items-center gap-2">
                     <div className={cn("w-8 h-8 rounded flex items-center justify-center flex-shrink-0", record.hasAudio ? "bg-purple-100 text-purple-600" : "bg-mck-bg text-mck-navy/60")}>
                       {record.hasAudio ? <FileAudio size={16} /> : <FileText size={16} />}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-bold text-mck-navy truncate pr-20">{record.title}</p>
+                    <div className="flex-1 min-w-0 pr-16">
+                      <p className="text-xs font-bold text-mck-navy truncate">{record.title}</p>
                       <p className="text-[10px] text-mck-navy/50 mt-1">{formatDate(record.date)}</p>
                       {record.audioFileName && <p className="text-[10px] text-purple-500 truncate">🎤 {record.audioFileName}</p>}
                     </div>
                   </div>
                   <div className="absolute top-1/2 -translate-y-1/2 right-2 flex items-center gap-2">
-                    <button onClick={(e) => openImportModal(record, e)} className="px-2 py-1.5 text-[10px] font-bold text-white bg-mck-navy hover:bg-mck-navy/80 rounded transition-colors flex items-center gap-1" title="导入文书中心">
-                      <UploadCloud size={12} />
-                      <span>导入</span>
+                    <button onClick={(e) => openImportModal(record, e)} className="p-1.5 text-mck-navy/50 hover:text-white hover:bg-mck-navy rounded transition-colors" title="导入文书中心">
+                      <UploadCloud size={14} />
                     </button>
-                    <button onClick={(e) => deleteRecord(record.id, e)} className="px-2 py-1.5 text-[10px] font-bold text-white bg-gray-400 hover:bg-gray-500 rounded transition-colors flex items-center gap-1">
-                      <Trash2 size={12} />
-                      <span>删除</span>
+                    <button onClick={(e) => deleteRecord(record.id, e)} className="p-1.5 text-mck-navy/50 hover:text-white hover:bg-gray-500 rounded transition-colors" title="删除">
+                      <Trash2 size={14} />
                     </button>
                   </div>
                 </div>

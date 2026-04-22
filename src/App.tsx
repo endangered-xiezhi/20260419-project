@@ -636,7 +636,7 @@ export default function App() {
                   if (element) {
                     element.scrollIntoView({ behavior: "smooth", block: "start" });
                   }
-                }, 100);
+                }, 500);
               }}
             />
           )}
