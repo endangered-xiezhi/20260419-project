@@ -1558,8 +1558,11 @@ export const DocumentCenter: React.FC<DocumentCenterProps> = ({ meetingId, editE
 
   // 监听会议纪要导入事件
   useEffect(() => {
-    const handleMinutesImported = (event: CustomEvent<ImportedMinutesRecord>) => {
-      const importedRecord = event.detail;
+    const handleMinutesImported = (event: Event) => {
+      const customEvent = event as CustomEvent<ImportedMinutesRecord>;
+      const importedRecord = customEvent.detail;
+
+      if (!importedRecord || !importedRecord.title) return;
 
       // 创建导入的文书记录
       const newDoc: GeneratedDocument = {
@@ -1580,6 +1583,7 @@ export const DocumentCenter: React.FC<DocumentCenterProps> = ({ meetingId, editE
       // 添加到文书列表
       setGeneratedDocs(prev => {
         const updated = [newDoc, ...prev];
+        // 保存到 localStorage
         localStorage.setItem("corporate_generated_docs", JSON.stringify(updated));
         return updated;
       });
@@ -1592,9 +1596,9 @@ export const DocumentCenter: React.FC<DocumentCenterProps> = ({ meetingId, editE
       localStorage.setItem(minutesStorageKey, JSON.stringify(updatedMinutes));
     };
 
-    window.addEventListener('minutes-imported', handleMinutesImported as EventListener);
+    window.addEventListener('minutes-imported', handleMinutesImported);
     return () => {
-      window.removeEventListener('minutes-imported', handleMinutesImported as EventListener);
+      window.removeEventListener('minutes-imported', handleMinutesImported);
     };
   }, []);
 
@@ -2255,12 +2259,12 @@ ${new Date().toLocaleDateString('zh-CN')}`,
     }
     if (category === 'board') {
       return [
-        { id: 'board_proposal', name: '董事会议案' },
-        { id: 'board_voting', name: '董事会表决票' },
-        { id: 'board_minutes', name: '董事会会议记录' },
-        { id: 'board_resolution', name: '董事会决议' },
-        { id: 'board_signin', name: '董事会签到表' },
-        { id: 'board_notice', name: '董事会会议通知' },
+        { id: 'board_proposal', name: '议案' },
+        { id: 'board_voting', name: '表决票' },
+        { id: 'board_minutes', name: '会议记录' },
+        { id: 'board_resolution', name: '决议' },
+        { id: 'board_signin', name: '签到表' },
+        { id: 'board_notice', name: '会议通知' },
       ];
     }
     return [];
@@ -2420,7 +2424,7 @@ ${new Date().toLocaleDateString('zh-CN')}`,
   };
 
   // 支持合规审查的文书类型
-  const complianceReviewableTypes = ['agenda', 'notice', 'resolution', 'proxy'];
+  const complianceReviewableTypes = ['agenda', 'notice', 'resolution', 'proxy', 'board_resolution'];
 
   // 邮件编辑弹窗组件
   const EmailEditorModal: React.FC<{
