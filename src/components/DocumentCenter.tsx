@@ -247,6 +247,7 @@ interface DocumentCenterProps {
   onEmailSaved?: (email: EmailDocument) => void;
   onEmailClosed?: () => void;
   onComplianceReview?: (docId?: string) => void; // 跳转到合规审查
+  onNavigateToKnowledge?: () => void; // 跳转到规则文件库
 }
 
 // 合规审查结果
@@ -1495,7 +1496,7 @@ const DocumentFormModal: React.FC<{
   );
 };
 
-export const DocumentCenter: React.FC<DocumentCenterProps> = ({ meetingId, editEmailFor, onEmailSaved, onEmailClosed, onComplianceReview }) => {
+export const DocumentCenter: React.FC<DocumentCenterProps> = ({ meetingId, editEmailFor, onEmailSaved, onEmailClosed, onComplianceReview, onNavigateToKnowledge }) => {
   const [showGenerator, setShowGenerator] = useState(false);
   const [showImporter, setShowImporter] = useState(false); // 文书导入弹窗
   // 文书生成：一级分类（会议/制度）
@@ -1532,9 +1533,10 @@ export const DocumentCenter: React.FC<DocumentCenterProps> = ({ meetingId, editE
   // 导入规则文件库弹窗状态
   const [showImportRuleLibrary, setShowImportRuleLibrary] = useState(false);
   const [ruleLibraryDocToImport, setRuleLibraryDocToImport] = useState<GeneratedDocument | null>(null);
-  // 导入成功提示状态
-  const [showImportSuccess, setShowImportSuccess] = useState(false);
-  // 已导入规则文件库的制度文件列表
+  // 导入成功/更新结果弹窗状态
+  const [showImportResult, setShowImportResult] = useState(false);
+  const [importResultType, setImportResultType] = useState<'imported' | 'updated'>('imported');
+  // 已导入规则文件库的制度文件列表（包含内容hash用于检测更新）
   const [importedRuleDocs, setImportedRuleDocs] = useState<GeneratedDocument[]>(() => {
     const saved = localStorage.getItem("corporate_imported_rule_docs");
     return saved ? JSON.parse(saved) : [];
@@ -1934,6 +1936,33 @@ ${new Date().toLocaleDateString('zh-CN')}`,
     }
   };
 
+  // 生成内容hash用于检测更新
+  const generateContentHash = (content: string): string => {
+    let hash = 0;
+    for (let i = 0; i < content.length; i++) {
+      const char = content.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32bit integer
+    }
+    return hash.toString(16);
+  };
+
+  // 检查制度文件是否已导入
+  const checkRegulationImported = (doc: GeneratedDocument): { imported: boolean; contentChanged: boolean; existingDoc?: GeneratedDocument } => {
+    const existingDoc = importedRuleDocs.find(d => d.name === doc.name);
+    if (!existingDoc) {
+      return { imported: false, contentChanged: false };
+    }
+    // 比较内容hash
+    const existingHash = generateContentHash(existingDoc.content || '');
+    const newHash = generateContentHash(doc.content || '');
+    return {
+      imported: true,
+      contentChanged: existingHash !== newHash,
+      existingDoc
+    };
+  };
+
   // 打开导入规则文件库确认弹窗
   const handleOpenImportRuleLibrary = (doc: GeneratedDocument) => {
     setRuleLibraryDocToImport(doc);
@@ -1944,14 +1973,27 @@ ${new Date().toLocaleDateString('zh-CN')}`,
   const handleConfirmImportRuleLibrary = () => {
     if (!ruleLibraryDocToImport) return;
     
-    // 添加到导入的规则文件列表
+    const checkResult = checkRegulationImported(ruleLibraryDocToImport);
+    const isUpdate = checkResult.imported && checkResult.contentChanged;
+    
+    // 创建新的规则文档
     const newRuleDoc: GeneratedDocument = {
       ...ruleLibraryDocToImport,
       id: `rule-${Date.now()}`,
       content: ruleLibraryDocToImport.content
     };
     
-    const updatedRuleDocs = [newRuleDoc, ...importedRuleDocs];
+    let updatedRuleDocs: GeneratedDocument[];
+    if (isUpdate) {
+      // 更新已存在的文档
+      updatedRuleDocs = importedRuleDocs.map(d => 
+        d.name === ruleLibraryDocToImport.name ? { ...newRuleDoc, id: d.id } : d
+      );
+    } else {
+      // 添加新文档（去除已存在的同名文档）
+      updatedRuleDocs = [newRuleDoc, ...importedRuleDocs.filter(d => d.name !== ruleLibraryDocToImport.name)];
+    }
+    
     setImportedRuleDocs(updatedRuleDocs);
     localStorage.setItem("corporate_imported_rule_docs", JSON.stringify(updatedRuleDocs));
     
@@ -1959,9 +2001,20 @@ ${new Date().toLocaleDateString('zh-CN')}`,
     setShowImportRuleLibrary(false);
     setRuleLibraryDocToImport(null);
     
-    // 显示导入成功提示
-    setShowImportSuccess(true);
-    setTimeout(() => setShowImportSuccess(false), 2000);
+    // 显示导入/更新结果弹窗
+    setImportResultType(isUpdate ? 'updated' : 'imported');
+    setShowImportResult(true);
+  };
+
+  // 关闭导入结果弹窗
+  const handleCloseImportResult = () => {
+    setShowImportResult(false);
+  };
+
+  // 查看导入结果，跳转到规则文件库
+  const handleViewImportResult = () => {
+    setShowImportResult(false);
+    onNavigateToKnowledge?.();
   };
 
   // 取消导入规则文件库
@@ -3556,9 +3609,22 @@ ${email.body}`;
                             <button onClick={() => handleDownload(doc)} className="p-1 hover:bg-mck-blue/10 rounded" title="下载">
                               <FileDown size={12} className="text-mck-blue" />
                             </button>
-                            <button onClick={() => handleOpenImportRuleLibrary(doc)} className="p-1 hover:bg-green-50 rounded" title="导入规则文件库">
-                              <Upload size={12} className="text-green-600" />
-                            </button>
+                            {((): React.ReactNode => {
+                              const check = checkRegulationImported(doc);
+                              if (check.imported && !check.contentChanged) {
+                                // 已导入且内容相同，按钮禁用
+                                return (
+                                  <button disabled className="p-1 rounded opacity-40 cursor-not-allowed" title="已导入（内容无更新）">
+                                    <Upload size={12} className="text-gray-400" />
+                                  </button>
+                                );
+                              }
+                              return (
+                                <button onClick={() => handleOpenImportRuleLibrary(doc)} className="p-1 hover:bg-green-50 rounded" title={check.imported ? "内容有更新，点击更新版本" : "导入规则文件库"}>
+                                  <Upload size={12} className={check.imported ? "text-orange-500" : "text-green-600"} />
+                                </button>
+                              );
+                            })()}
                             <button onClick={() => handleDelete(doc.id)} className="p-1 hover:bg-red-50 rounded" title="删除">
                               <Trash2 size={12} className="text-red-400" />
                             </button>
@@ -3575,41 +3641,87 @@ ${email.body}`;
       )}
 
       {/* 导入规则文件库确认弹窗 */}
-      {showImportRuleLibrary && ruleLibraryDocToImport && (
+      {showImportRuleLibrary && ruleLibraryDocToImport && ((): React.ReactNode => {
+        const check = checkRegulationImported(ruleLibraryDocToImport);
+        const isUpdate = check.imported && check.contentChanged;
+        
+        return (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white w-full max-w-md rounded-xl shadow-2xl p-6 relative">
+              {/* 右上角删除按钮 */}
+              <button
+                onClick={handleCancelImportRuleLibrary}
+                className="absolute top-4 right-4 p-2 hover:bg-gray-100 rounded-full transition-colors"
+              >
+                <X size={20} className="text-gray-400" />
+              </button>
+              <div className="text-center">
+                <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Upload size={32} className="text-green-600" />
+                </div>
+                <h3 className="text-lg font-bold text-mck-navy mb-2">
+                  {isUpdate ? "确定更新版本" : "确认导入规则文件库"}
+                </h3>
+                <p className="text-sm text-mck-navy/60 mb-6">
+                  {isUpdate 
+                    ? `「${ruleLibraryDocToImport.name}」的内容已更新，确定要更新规则文件库中的版本吗？`
+                    : `确定要将「${ruleLibraryDocToImport.name}」导入到规则文件库中的「公司章程制度」板块吗？`
+                  }
+                </p>
+                <div className="flex items-center justify-center gap-3">
+                  <button
+                    onClick={handleCancelImportRuleLibrary}
+                    className="px-6 py-2 bg-gray-100 text-gray-600 text-sm font-bold rounded-lg hover:bg-gray-200 transition-colors"
+                  >
+                    取消
+                  </button>
+                  <button
+                    onClick={handleConfirmImportRuleLibrary}
+                    className="px-6 py-2 bg-green-600 text-white text-sm font-bold rounded-lg hover:bg-green-700 transition-colors"
+                  >
+                    {isUpdate ? "更新版本" : "确定"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* 导入/更新成功结果弹窗 */}
+      {showImportResult && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-md rounded-xl shadow-2xl p-6">
+          <div className="bg-white w-full max-w-md rounded-xl shadow-2xl p-6 relative">
+            {/* 右上角删除按钮 */}
+            <button
+              onClick={handleCloseImportResult}
+              className="absolute top-4 right-4 p-2 hover:bg-gray-100 rounded-full transition-colors"
+            >
+              <X size={20} className="text-gray-400" />
+            </button>
             <div className="text-center">
               <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Upload size={32} className="text-green-600" />
+                <Check size={32} className="text-green-600" />
               </div>
-              <h3 className="text-lg font-bold text-mck-navy mb-2">确认导入规则文件库</h3>
-              <p className="text-sm text-mck-navy/60 mb-6">
-                确定要将「{ruleLibraryDocToImport.name}」导入到规则文件库中的「公司章程制度」板块吗？
-              </p>
+              <h3 className="text-lg font-bold text-mck-navy mb-6">
+                {importResultType === 'updated' ? '已更新' : '已导入'}
+              </h3>
               <div className="flex items-center justify-center gap-3">
                 <button
-                  onClick={handleCancelImportRuleLibrary}
+                  onClick={handleCloseImportResult}
                   className="px-6 py-2 bg-gray-100 text-gray-600 text-sm font-bold rounded-lg hover:bg-gray-200 transition-colors"
                 >
-                  取消
+                  关闭
                 </button>
                 <button
-                  onClick={handleConfirmImportRuleLibrary}
+                  onClick={handleViewImportResult}
                   className="px-6 py-2 bg-green-600 text-white text-sm font-bold rounded-lg hover:bg-green-700 transition-colors"
                 >
-                  确定
+                  查看
                 </button>
               </div>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* 导入成功提示 */}
-      {showImportSuccess && (
-        <div className="fixed top-4 right-4 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 flex items-center gap-2">
-          <Check size={16} />
-          <span className="text-sm font-bold">导入成功</span>
         </div>
       )}
 

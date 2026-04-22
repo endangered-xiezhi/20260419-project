@@ -650,6 +650,7 @@ export default function App() {
               onComplianceReview={(docId) => {
                 setActiveTab("compliance");
               }}
+              onNavigateToKnowledge={() => setActiveTab("knowledge")}
             />
           )}
           {activeTab === "knowledge" && <KnowledgeBase />}
