@@ -293,7 +293,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, complianceWarn
                 <CalendarIcon size={20} className="text-mck-blue" />
               </div>
               <div className="min-w-0 overflow-hidden">
-                <div className="text-2xl font-serif font-bold text-mck-navy truncate">{activeMeetings}</div>
+                <div className="text-2xl font-sans font-bold text-mck-navy truncate">{activeMeetings}</div>
                 <div className="text-[10px] uppercase tracking-widest text-mck-navy/40 font-bold whitespace-nowrap">待办会议</div>
               </div>
             </div>
@@ -311,7 +311,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, complianceWarn
                 <CheckCircle2 size={20} className="text-green-600" />
               </div>
               <div className="min-w-0 overflow-hidden">
-                <div className="text-2xl font-serif font-bold text-mck-navy truncate">{complianceRate}%</div>
+                <div className="text-2xl font-sans font-bold text-mck-navy truncate">{complianceRate}%</div>
                 <div className="text-[10px] uppercase tracking-widest text-mck-navy/40 font-bold whitespace-nowrap">合规指数</div>
               </div>
             </div>
@@ -320,7 +320,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, complianceWarn
         </button>
 
         <button
-          onClick={() => onNavigate("documents")}
+          onClick={() => onNavigate("compliance")}
           className="w-full text-left group cursor-pointer"
         >
           <div className={cn(
@@ -335,7 +335,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, complianceWarn
                 <AlertCircle size={20} className={complianceWarningCount > 0 ? "text-mck-red" : "text-green-600"} />
               </div>
               <div className="min-w-0 overflow-hidden">
-                <div className="text-2xl font-serif font-bold text-mck-navy truncate">{complianceWarningCount}</div>
+                <div className="text-2xl font-sans font-bold text-mck-navy truncate">{complianceWarningCount}</div>
                 <div className="text-[10px] uppercase tracking-widest text-mck-navy/40 font-bold whitespace-nowrap">法定通知预警</div>
               </div>
             </div>
@@ -356,7 +356,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, complianceWarn
                 <Users size={20} className="text-mck-blue" />
               </div>
               <div className="min-w-0 overflow-hidden">
-                <div className="text-2xl font-serif font-bold text-mck-navy truncate">{personnelCount}</div>
+                <div className="text-2xl font-sans font-bold text-mck-navy truncate">{personnelCount}</div>
                 <div className="text-[10px] uppercase tracking-widest text-mck-navy/40 font-bold whitespace-nowrap">人数</div>
               </div>
             </div>

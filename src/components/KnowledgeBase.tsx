@@ -515,22 +515,65 @@ export const KnowledgeBase: React.FC = () => {
                       >
                         上一页
                       </button>
-                      <div className="flex items-center gap-1">
-                        {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
-                          <button
-                            key={page}
-                            onClick={() => setCurrentPage(page)}
-                            className={cn(
-                              "w-8 h-8 text-xs font-medium rounded",
-                              currentPage === page
-                                ? "bg-mck-blue text-white"
-                                : "text-mck-navy/60 hover:bg-mck-bg"
-                            )}
-                          >
-                            {page}
-                          </button>
-                        ))}
-                      </div>
+                      {/* 首页 */}
+                      <button
+                        onClick={() => setCurrentPage(1)}
+                        disabled={currentPage === 1}
+                        className="px-2 py-1.5 text-xs font-medium text-mck-navy/60 hover:text-mck-navy disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        首页
+                      </button>
+                      {/* 页码 - 最多显示5个 */}
+                      {(() => {
+                        const maxVisible = 5;
+                        let startPage = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+                        let endPage = Math.min(totalPages, startPage + maxVisible - 1);
+                        
+                        if (endPage - startPage < maxVisible - 1) {
+                          startPage = Math.max(1, endPage - maxVisible + 1);
+                        }
+                        
+                        const pages: (number | string)[] = [];
+                        for (let i = startPage; i <= endPage; i++) {
+                          pages.push(i);
+                        }
+                        
+                        // 如果第一页前面还有页，添加省略号
+                        if (startPage > 1) {
+                          pages.unshift('...');
+                        }
+                        // 如果最后一页后面还有页，添加省略号
+                        if (endPage < totalPages) {
+                          pages.push('...');
+                        }
+                        
+                        return pages.map((page, idx) => (
+                          page === '...' ? (
+                            <span key={`ellipsis-${idx}`} className="px-1 text-mck-navy/40">...</span>
+                          ) : (
+                            <button
+                              key={page}
+                              onClick={() => setCurrentPage(page as number)}
+                              className={cn(
+                                "w-8 h-8 text-xs font-medium rounded",
+                                currentPage === page
+                                  ? "bg-mck-blue text-white"
+                                  : "text-mck-navy/60 hover:bg-mck-bg"
+                              )}
+                            >
+                              {page}
+                            </button>
+                          )
+                        ));
+                      })()}
+                      {/* 末页 */}
+                      <button
+                        onClick={() => setCurrentPage(totalPages)}
+                        disabled={currentPage === totalPages}
+                        className="px-2 py-1.5 text-xs font-medium text-mck-navy/60 hover:text-mck-navy disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        末页
+                      </button>
                       <button
                         onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                         disabled={currentPage === totalPages}
