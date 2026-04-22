@@ -1892,13 +1892,15 @@ ${new Date().toLocaleDateString('zh-CN')}`,
   const handleRegulationSave = () => {
     if (!regulationEditDoc) return;
     
-    const savedDoc: GeneratedDocument = {
+    // 直接更新原文档，保留原ID
+    const updatedDoc: GeneratedDocument = {
       ...regulationEditDoc,
-      id: `doc-${Date.now()}`,
-      content: regulationEditContent
+      content: regulationEditContent,
+      date: new Date().toLocaleDateString('zh-CN')
     };
     
-    setGeneratedDocs(prev => [savedDoc, ...prev]);
+    // 更新文书列表中的对应文档
+    setGeneratedDocs(prev => prev.map(d => d.id === regulationEditDoc.id ? updatedDoc : d));
     setShowRegulationEditor(false);
     setRegulationEditDoc(null);
     setRegulationEditContent('');
