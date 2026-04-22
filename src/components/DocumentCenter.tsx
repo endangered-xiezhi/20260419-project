@@ -1514,41 +1514,6 @@ export const DocumentCenter: React.FC<DocumentCenterProps> = ({ meetingId, editE
     const saved = localStorage.getItem("corporate_generated_docs");
     return saved ? JSON.parse(saved) : [];
   });
-  // 同步导入的会议纪要到 generatedDocs
-  useEffect(() => {
-    const minutesStorageKey = "corporate_meeting_minutes_imported";
-    const minutesSaved = localStorage.getItem(minutesStorageKey);
-    if (!minutesSaved) return;
-    
-    const importedRecords: ImportedMinutesRecord[] = JSON.parse(minutesSaved);
-    if (importedRecords.length === 0) return;
-    
-    // 找出尚未合并到 generated_docs 的导入记录
-    const existingSourceIds = new Set(generatedDocs.filter(d => d.isImportedMinutes).map(d => d.sourceRecordId));
-    const unmergedRecords = importedRecords.filter(r => !existingSourceIds.has(r.sourceRecordId));
-    
-    if (unmergedRecords.length > 0) {
-      // 转换为 GeneratedDocument 格式并合并
-      const newDocs = unmergedRecords.map(record => ({
-        id: `minutes-imported-${record.id || Date.now()}`,
-        name: record.title,
-        type: 'minutes' as const,
-        typeName: '会议纪要',
-        meetingTitle: record.title,
-        meetingType: 'shareholder' as const,
-        level1Category: 'meeting' as const,
-        level2Category: 'shareholder' as const,
-        date: record.date,
-        content: record.content,
-        isImportedMinutes: true,
-        sourceRecordId: record.sourceRecordId,
-      }));
-      
-      const mergedDocs = [...newDocs, ...generatedDocs];
-      setGeneratedDocs(mergedDocs);
-      localStorage.setItem("corporate_generated_docs", JSON.stringify(mergedDocs));
-    }
-  }, []); // 只在初始化时运行一次
   const [emails, setEmails] = useState<EmailDocument[]>(() => {
     const saved = localStorage.getItem("corporate_generated_emails");
     return saved ? JSON.parse(saved) : [];
@@ -3410,17 +3375,18 @@ ${email.body}`;
       )}
 
       {/* 在线文件夹 - 紧凑表格布局 */}
-      <div className="mck-card" id="document-folder">
-        <div className="flex items-center justify-between mb-4 pb-3 border-b border-mck-border">
-          <div className="flex items-center gap-2">
-            <FolderOpen size={16} className="text-green-600" />
-            <span className="font-bold text-mck-navy text-sm">在线文件夹</span>
-            <span className="text-[10px] text-mck-navy/40">共{generatedDocs.length}份文书 / {importedRuleDocs.length}份制度 / {emails.length}封邮件</span>
+      {(generatedDocs.length > 0 || emails.length > 0) && (
+        <div className="mck-card" id="document-folder">
+          <div className="flex items-center justify-between mb-4 pb-3 border-b border-mck-border">
+            <div className="flex items-center gap-2">
+              <FolderOpen size={16} className="text-green-600" />
+              <span className="font-bold text-mck-navy text-sm">在线文件夹</span>
+              <span className="text-[10px] text-mck-navy/40">共{generatedDocs.length}份文书 / {importedRuleDocs.length}份制度 / {emails.length}封邮件</span>
+            </div>
           </div>
-        </div>
 
-        {/* 按会议分组显示 */}
-        <div className="space-y-2">
+          {/* 按会议分组显示 */}
+          <div className="space-y-2">
             {Object.entries(groupedByMeeting).map(([meetingTitle, { docs, emails: meetingEmails }]) => {
               const totalItems = docs.length + meetingEmails.length;
               if (totalItems === 0) return null;
@@ -3678,7 +3644,7 @@ ${email.body}`;
             );
           })()}
         </div>
-      </div>
+      )}
 
       {/* 导入规则文件库确认弹窗 */}
       {showImportRuleLibrary && ruleLibraryDocToImport && ((): React.ReactNode => {
