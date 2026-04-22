@@ -627,7 +627,8 @@ export default function App() {
           {activeTab === "recording" && (
             <RecordingWorkspace 
               meetingId={selectedMeetingId} 
-              onAnalysisComplete={handleGoToCompliance} 
+              onAnalysisComplete={handleGoToCompliance}
+              onNavigateToDocuments={() => setActiveTab("documents")}
             />
           )}
           {activeTab === "compliance" && (

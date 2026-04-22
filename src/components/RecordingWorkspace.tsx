@@ -15,6 +15,7 @@ export interface ImportedMinutesRecord {
 interface RecordingWorkspaceProps {
   meetingId?: string | null;
   onAnalysisComplete?: (meetingId: string) => void;
+  onNavigateToDocuments?: () => void;
 }
 
 interface MeetingMinutesRecord {
@@ -641,12 +642,23 @@ export const RecordingWorkspace: React.FC<RecordingWorkspaceProps> = ({ meetingI
       {/* 导入成功弹窗 */}
       {showImportSuccess && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center">
-          <div className="bg-white rounded-2xl p-8 max-w-xs w-full mx-4 text-center shadow-2xl animate-pulse">
+          <div className="bg-white rounded-2xl p-8 max-w-xs w-full mx-4 text-center shadow-2xl">
             <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <Check size={32} className="text-green-500" />
             </div>
-            <h3 className="text-xl font-bold text-mck-navy mb-2">导入成功</h3>
-            <p className="text-sm text-mck-navy/60">会议纪要已导入文书中心</p>
+            <h3 className="text-xl font-bold text-mck-navy mb-2">已导入</h3>
+            <p className="text-sm text-mck-navy/60 mb-6">会议纪要已导入文书中心</p>
+            <button
+              onClick={() => {
+                setShowImportSuccess(false);
+                if (onNavigateToDocuments) {
+                  onNavigateToDocuments();
+                }
+              }}
+              className="w-full px-4 py-2 bg-green-500 text-white text-sm font-bold hover:bg-green-600 transition-colors rounded-lg"
+            >
+              查看
+            </button>
           </div>
         </div>
       )}

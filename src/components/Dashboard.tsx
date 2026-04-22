@@ -1,7 +1,7 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { StatCard } from "./StatCard";
 import { Meeting } from "../types";
-import { Clock, Calendar as CalendarIcon, ChevronRight, ChevronLeft, List, X, CheckCircle2, AlertCircle, Users } from "lucide-react";
+import { Clock, Calendar as CalendarIcon, ChevronRight, ChevronLeft, List, X, CheckCircle2, AlertCircle, Users, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const initialMeetings: Meeting[] = [
@@ -267,6 +267,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, complianceWarn
     return saved ? JSON.parse(saved).length : 0;
   }, []);
 
+  // 获取文书中心文书数量
+  const [documentCount, setDocumentCount] = React.useState(0);
+  useEffect(() => {
+    const saved = localStorage.getItem("corporate_generated_docs");
+    if (saved) {
+      const docs = JSON.parse(saved);
+      setDocumentCount(docs.length);
+    }
+  }, []);
+
   // 统计数据
   const activeMeetings = meetings.filter((m) => m.status === "筹备中" || m.status === "进行中").length;
   const complianceRate = meetings.length > 0
@@ -302,20 +312,20 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, complianceWarn
         </button>
 
         <button
-          onClick={() => onNavigate("compliance")}
+          onClick={() => onNavigate("documents")}
           className="w-full text-left group cursor-pointer"
         >
           <div className="mck-card group-hover:border-green-500 group-hover:shadow-md transition-all p-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-green-50 rounded-xl flex items-center justify-center group-hover:bg-green-100 transition-colors shrink-0">
-                <CheckCircle2 size={20} className="text-green-600" />
+                <FileText size={20} className="text-green-600" />
               </div>
               <div className="min-w-0 overflow-hidden">
-                <div className="text-2xl font-sans font-bold text-mck-navy truncate">{complianceRate}%</div>
-                <div className="text-[10px] uppercase tracking-widest text-mck-navy/40 font-bold whitespace-nowrap">合规指数</div>
+                <div className="text-2xl font-sans font-bold text-mck-navy truncate">{documentCount}</div>
+                <div className="text-[10px] uppercase tracking-widest text-mck-navy/40 font-bold whitespace-nowrap">份文书</div>
               </div>
             </div>
-            <div className="text-[10px] text-green-600 font-bold mt-2 whitespace-nowrap">合规审查 →</div>
+            <div className="text-[10px] text-green-600 font-bold mt-2 whitespace-nowrap">文书中心 →</div>
           </div>
         </button>
 
