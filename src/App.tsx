@@ -46,6 +46,14 @@ export default function App() {
       return "dashboard";
     }
   });
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    try {
+      return parseInt(localStorage.getItem("corporate_sidebar_width") || "256", 10);
+    } catch {
+      return 256;
+    }
+  });
+  const [isResizing, setIsResizing] = useState(false);
   const [settingsSubTab, setSettingsSubTab] = useState<"account" | "system">("account");
   const [selectedMeetingId, setSelectedMeetingId] = useState<string | null>(() => {
     try {
@@ -246,6 +254,43 @@ export default function App() {
     return () => window.removeEventListener("storage", handleStorageChange);
   }, []);
 
+  // 侧边栏拖动调整宽度
+  const startResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing) return;
+      const newWidth = Math.max(192, Math.min(400, e.clientX));
+      setSidebarWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      if (isResizing) {
+        setIsResizing(false);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        try {
+          localStorage.setItem("corporate_sidebar_width", String(sidebarWidth));
+        } catch {}
+      }
+    };
+
+    if (isResizing) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    }
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing, sidebarWidth]);
+
   // 全局搜索逻辑
   const performGlobalSearch = (query: string) => {
     setGlobalSearchQuery(query);
@@ -343,7 +388,7 @@ export default function App() {
 
   return (
     <div className="flex min-h-screen bg-mck-bg">
-      <Sidebar activeTab={activeTab} setActiveTab={navigateTo} />
+      <Sidebar activeTab={activeTab} setActiveTab={navigateTo} width={sidebarWidth} onResize={startResize} />
       
       <main className="flex-1 flex flex-col">
         {/* Top Header */}
@@ -636,7 +681,7 @@ export default function App() {
                   if (element) {
                     element.scrollIntoView({ behavior: "smooth", block: "start" });
                   }
-                }, 100);
+                }, 300);
               }}
             />
           )}

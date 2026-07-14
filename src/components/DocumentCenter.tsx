@@ -1589,24 +1589,12 @@ export const DocumentCenter: React.FC<DocumentCenterProps> = ({ meetingId, editE
         sourceRecordId: importedRecord.sourceRecordId,
       };
 
-      // 添加到文书列表
+      // 添加到文书列表并保存到 localStorage
       setGeneratedDocs(prev => {
         const updated = [newDoc, ...prev];
-        // 保存到 localStorage
         localStorage.setItem("corporate_generated_docs", JSON.stringify(updated));
         return updated;
       });
-
-      // 同时保存到导入会议纪要存储
-      const minutesStorageKey = "corporate_meeting_minutes_imported";
-      const saved = localStorage.getItem(minutesStorageKey);
-      const existingMinutes: ImportedMinutesRecord[] = saved ? JSON.parse(saved) : [];
-      // 防重复检查
-      if (existingMinutes.some(m => m.sourceRecordId === importedRecord.sourceRecordId)) {
-        return;
-      }
-      const updatedMinutes = [importedRecord, ...existingMinutes];
-      localStorage.setItem(minutesStorageKey, JSON.stringify(updatedMinutes));
     };
 
     window.addEventListener('minutes-imported', handleMinutesImported);
@@ -2146,6 +2134,11 @@ ${new Date().toLocaleDateString('zh-CN')}`,
     }
   };
 
+  // 删除指定会议的所有文书
+  const handleDeleteMeeting = (meetingTitle: string) => {
+    setGeneratedDocs(prev => prev.filter(d => d.meetingTitle !== meetingTitle));
+  };
+
   // 跳转到合规审查
   const handleComplianceReview = (doc: GeneratedDocument) => {
     onComplianceReview?.(doc.id);
@@ -2367,7 +2360,7 @@ ${new Date().toLocaleDateString('zh-CN')}`,
           setMeetingHistory(newHistory);
           localStorage.setItem("corporate_meeting_history", JSON.stringify(newHistory));
         }
-      }
+      } // 🚨🚨🚨 就是这里！之前你的代码漏掉了这个用来关闭 else 的大括号！
 
       // 关闭弹窗并重置
       setShowImporter(false);
@@ -3419,6 +3412,14 @@ ${email.body}`;
                       <span>{docs.length}份文书</span>
                       <span>|</span>
                       <span>{meetingEmails.length}封邮件</span>
+                      {meetingTitle === 'undefined' && (
+                        <button
+                          onClick={() => handleDeleteMeeting(meetingTitle)}
+                          className="ml-2 px-2 py-0.5 bg-red-500 hover:bg-red-600 text-white rounded text-[10px] font-bold"
+                        >
+                          删除此文件夹
+                        </button>
+                      )}
                     </div>
                   </div>
                   
