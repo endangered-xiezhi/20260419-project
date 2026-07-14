@@ -10,8 +10,8 @@ const __dirname = path.dirname(__filename);
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
   return {
-    // GitHub Pages publishes this project below /20260419-project/.
-    base: mode === 'production' ? '/20260419-project/' : '/',
+    // GitHub Pages uses a project subpath; full-stack hosts can override it with VITE_BASE_PATH=/.
+    base: env.VITE_BASE_PATH || (mode === 'production' ? '/20260419-project/' : '/'),
     plugins: [react(), tailwindcss()],
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
