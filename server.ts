@@ -11,6 +11,7 @@ import { dirname, join } from "path";
 import crypto from "crypto";
 import { extractDocumentPlainText, titleFromDocument } from "./lib/knowledgeExtract.js";
 import { glmChatCompletion } from "./lib/glmChat.js";
+import { getFeishuConfiguration, listFeishuTables } from "./lib/feishu.js";
 
 // 腾讯云配置 - 从环境变量读取
 const TENCENT_SECRET_ID = process.env.TENCENT_SECRET_ID || "";
@@ -108,6 +109,27 @@ async function startServer() {
   // API Routes
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
+  });
+
+  // Safe Feishu connection check. It never returns credentials or table content.
+  app.get("/api/feishu/status", async (_req, res) => {
+    const fields = getFeishuConfiguration();
+    const configured = Object.values(fields).every(Boolean);
+
+    if (!configured) {
+      return res.json({ configured: false, connected: false, fields });
+    }
+
+    try {
+      const tables = await listFeishuTables();
+      res.json({ configured: true, connected: true, tableCount: tables.length });
+    } catch (error) {
+      res.status(502).json({
+        configured: true,
+        connected: false,
+        error: error instanceof Error ? error.message : "飞书连接失败",
+      });
+    }
   });
 
   /** 智谱 GLM 是否已配置（不返回密钥） */
