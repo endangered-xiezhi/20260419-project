@@ -36,7 +36,8 @@ async function startServer() {
   console.log("腾讯云 SDK 初始化完成");
 
   const app = express();
-  const PORT = 3001;
+  // Render supplies PORT automatically; use 3001 when running locally.
+  const PORT = Number(process.env.PORT) || 3001;
 
   app.use(express.json());
 
