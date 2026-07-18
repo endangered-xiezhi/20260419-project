@@ -21,19 +21,6 @@ type FeishuTableListResponse = {
   };
 };
 
-type FeishuSpace = {
-  space_id: string;
-  name?: string;
-};
-
-type FeishuSpaceListResponse = {
-  code?: number;
-  msg?: string;
-  data?: {
-    items?: FeishuSpace[];
-  };
-};
-
 type FeishuWikiNodeResponse = {
   code?: number;
   msg?: string;
@@ -113,33 +100,22 @@ async function tryResolveWikiTokenToBitableAppToken(inputToken: string, token: s
     return wikiTokenCache.appToken;
   }
 
-  const spacesResponse = await feishuGet<FeishuSpaceListResponse>("/wiki/v2/spaces?page_size=50", token);
-  const spaces = spacesResponse.result.data?.items || [];
+  const nodeResponse = await feishuGet<FeishuWikiNodeResponse>(
+    `/wiki/v2/spaces/get_node?token=${encodeURIComponent(inputToken)}`,
+    token,
+  );
+  const node = nodeResponse.result.data?.node;
 
-  if (!spacesResponse.ok || spacesResponse.result.code !== 0) {
+  if (!nodeResponse.ok || nodeResponse.result.code !== 0 || !node?.obj_token) {
     return null;
   }
 
-  for (const space of spaces) {
-    const nodeResponse = await feishuGet<FeishuWikiNodeResponse>(
-      `/wiki/v2/spaces/${encodeURIComponent(space.space_id)}/nodes/${encodeURIComponent(inputToken)}`,
-      token,
-    );
-    const node = nodeResponse.result.data?.node;
-
-    if (!nodeResponse.ok || nodeResponse.result.code !== 0 || !node?.obj_token) {
-      continue;
-    }
-
-    if (node.obj_type && !["bitable", "base"].includes(node.obj_type)) {
-      throw new Error(`该 wiki 节点不是多维表格，而是 ${node.obj_type}`);
-    }
-
-    wikiTokenCache = { inputToken, appToken: node.obj_token };
-    return node.obj_token;
+  if (node.obj_type && !["bitable", "base"].includes(node.obj_type)) {
+    throw new Error(`该 wiki 节点不是多维表格，而是 ${node.obj_type}`);
   }
 
-  return null;
+  wikiTokenCache = { inputToken, appToken: node.obj_token };
+  return node.obj_token;
 }
 
 async function getBitableAppToken(token: string) {
