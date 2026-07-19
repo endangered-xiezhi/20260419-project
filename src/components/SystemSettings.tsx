@@ -577,7 +577,7 @@ const SystemSettingsContent: React.FC = () => {
                   <li>智能体详情页的 URL 中可找到 API ID（如 .../agent/agent_xxx 中的 agent_xxx 部分）</li>
                 </ol>
                 <p className="mt-2 text-[10px] italic text-blue-600">* 智能体必须已发布才能通过 API 调用</p>
-                <p className="text-[10px] italic text-blue-600">* 未配置时使用内置演示模式（仅供体验）</p>
+                <p className="text-[10px] italic text-blue-600">* 合规审查始终先读取当前文件并执行证据核验，不再使用固定演示答案</p>
               </div>
             </div>
           </div>

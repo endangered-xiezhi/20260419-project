@@ -3,7 +3,6 @@ import { ShieldCheck, Upload, FileText, Brain, AlertTriangle, CheckCircle2, X, L
 import { ComplianceIssue } from "../types";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
-import { sendComplianceReview, YuanqiConfig } from "../services/yuanqiApi";
 
 interface ReviewRecord {
   id: string;
@@ -15,6 +14,11 @@ interface ReviewRecord {
   aiResponse?: string;
   aiThinking?: string;
   riskAlerts?: string[];
+  complianceScore?: number;
+  reviewMode?: "evidence-rules";
+  reviewConclusion?: string;
+  missingItems?: string[];
+  usedFeishu?: boolean;
 }
 
 interface ComplianceReviewProps {
@@ -68,7 +72,27 @@ const ResizeHandle: React.FC<ResizeHandleProps> = ({ onMouseDown, direction }) =
 export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, onGenerateDocuments, onReviewComplete }) => {
   const [records, setRecords] = useState<ReviewRecord[]>(() => {
     const saved = localStorage.getItem("corporate_compliance_records");
-    return saved ? JSON.parse(saved) : [];
+    if (!saved) return [];
+    try {
+      const parsed = JSON.parse(saved) as ReviewRecord[];
+      return parsed.map((record) => {
+        const isLegacyDemo =
+          record.aiThinking?.includes("2026年3月20日") ||
+          record.aiResponse?.includes("间隔仅为11天");
+        if (!isLegacyDemo) return record;
+        return {
+          ...record,
+          status: "pending" as const,
+          aiThinking: undefined,
+          aiResponse: undefined,
+          riskAlerts: undefined,
+          reviewConclusion: undefined,
+          complianceScore: undefined,
+        };
+      });
+    } catch {
+      return [];
+    }
   });
   const [activeRecord, setActiveRecord] = useState<ReviewRecord | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -268,24 +292,6 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
     }
   };
 
-  // 计算合规指数（基于AI审查结果：与预警成反比例）
-  // 🔴高风险 -> 30%合规指数
-  // ⚠️中风险 -> 60%合规指数
-  // ✅低风险 -> 95%合规指数
-  const calculateComplianceScore = (text: string): number => {
-    if (text.includes('🔴') || text.includes('高风险')) {
-      return 30;
-    }
-    if (text.includes('⚠️') || text.includes('中风险')) {
-      return 60;
-    }
-    if (text.includes('✅') || text.includes('低风险') || text.includes('合规')) {
-      return 95;
-    }
-    // 默认中等合规
-    return 70;
-  };
-
   const startAnalysis = async (record: ReviewRecord, sourceDocId?: string) => {
     setIsAnalyzing(true);
     
@@ -294,163 +300,73 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
     ));
     setActiveRecord(prev => prev?.id === record.id ? { ...prev, status: "analyzing" as const } : prev);
 
-    const settingsJson = localStorage.getItem("corporate_ai_settings");
-    let apiConfig: YuanqiConfig | null = null;
-    
-    if (settingsJson) {
-      try {
-        const parsed = JSON.parse(settingsJson);
-        if (parsed.yuanqiApiKey && parsed.yuanqiBotId) {
-          apiConfig = {
-            apiKey: parsed.yuanqiApiKey,
-            botId: parsed.yuanqiBotId
-          };
-        }
-      } catch (e) {
-        console.error('[ComplianceReview] 配置解析失败:', e);
+    try {
+      const response = await fetch("/api/compliance/review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: record.content || "",
+          meetingId: meetingId || undefined,
+        }),
+        signal: AbortSignal.timeout(120000),
+      });
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || "审查服务返回失败");
       }
-    }
 
-    if (apiConfig) {
-      try {
-        let fullText = '';
-        
-        await sendComplianceReview(apiConfig, record.content || '', {
-          onStream: (text) => {
-            fullText = text;
-            const streamingRecord: ReviewRecord = {
-              ...record,
-              status: "analyzing",
-              aiResponse: text,
-              aiThinking: '正在接收智能体响应...'
-            };
-            setActiveRecord(streamingRecord);
-            setRecords(prev => prev.map(r => r.id === record.id ? streamingRecord : r));
-          },
-          signal: AbortSignal.timeout(120000)
-        });
-
-        const thinkingProcess = `文档类型识别完成
-正在分析法律文书...
-正在调用腾讯元器智能体进行合规审查...`;
-
-        const riskAlerts = extractRiskAlerts(fullText);
-        const complianceScore = calculateComplianceScore(fullText);
-
-        const updatedRecord: ReviewRecord = {
-          ...record,
-          status: "completed",
-          aiThinking: thinkingProcess,
-          aiResponse: fullText || '智能体返回内容为空',
-          riskAlerts: riskAlerts
+      const review = result.data as {
+        score: number;
+        conclusion: string;
+        trace: string;
+        markdown: string;
+        riskAlerts: string[];
+        missingItems: string[];
+        mode: "evidence-rules";
+        sources?: {
+          document?: boolean;
+          feishu?: boolean;
+          feishuWarning?: string;
         };
+      };
+      const sourceTrace = review.sources?.feishu
+        ? "\n8. 已与当前飞书会议表、议案和纪要字段交叉核验"
+        : review.sources?.feishuWarning
+          ? `\n8. 飞书交叉核验暂未完成：${review.sources.feishuWarning}`
+          : "\n8. 当前未指定飞书会议，仅审查上传文件";
 
-        setRecords(prev => prev.map(r => r.id === record.id ? updatedRecord : r));
-        setActiveRecord(updatedRecord);
-        
-        // 如果是来自文书中心的文档，调用回调通知文书中心
-        if (sourceDocId && onReviewComplete) {
-          onReviewComplete(sourceDocId, complianceScore, record.id);
-        }
-      } catch (error: any) {
-        console.error('API 调用错误:', error);
-        const errorRecord: ReviewRecord = {
-          ...record,
-          status: "error",
-          aiResponse: `## ❌ 审查失败\n\n**错误信息**: ${error.message}\n\n请前往「系统设置」→「腾讯元器智能体」检查配置。`
-        };
-        setRecords(prev => prev.map(r => r.id === record.id ? errorRecord : r));
-        setActiveRecord(errorRecord);
-      } finally {
-        setIsAnalyzing(false);
+      const updatedRecord: ReviewRecord = {
+        ...record,
+        status: "completed",
+        aiThinking: `${review.trace}${sourceTrace}`,
+        aiResponse: review.markdown,
+        riskAlerts: review.riskAlerts,
+        complianceScore: review.score,
+        reviewMode: review.mode,
+        reviewConclusion: review.conclusion,
+        missingItems: review.missingItems,
+        usedFeishu: Boolean(review.sources?.feishu),
+      };
+
+      setRecords(prev => prev.map(r => r.id === record.id ? updatedRecord : r));
+      setActiveRecord(updatedRecord);
+
+      if (sourceDocId && onReviewComplete) {
+        onReviewComplete(sourceDocId, review.score, record.id);
       }
-    } else {
-      // 演示模式
-      setTimeout(() => {
-        const thinkingProcess = `正在分析文件内容...
-识别文档类型：会议记录
-提取关键信息：
-- 会议类型：临时股东会
-- 通知时间：2026年3月20日
-- 会议时间：2026年3月31日
-- 间隔天数：11天
-
-对照法规库检索...
-发现潜在问题：《公司法》第111条规定临时股东会应提前15日通知
-
-生成合规建议...`;
-
-        const aiResponse = `## 合规审查结果
-
-### 问题识别
-根据《中华人民共和国公司法》(2024修订) 第一百一十一条规定：
-> "召开临时股东会会议，应当将会议召开的时间、地点和审议的事项于会议召开十五日前通知各股东。"
-
-经审查，本次会议通知时间为2026年3月20日，会议召开时间为2026年3月31日，**间隔仅为11天**，未达到法定15日期限。
-
-### 风险等级
-🔴 **高风险** - 程序性违规
-
-### 修正建议
-1. **方案一（推荐）**：将会议日期顺延至2026年4月5日之后，确保满足15日通知期
-2. **方案二**：通过电子投票系统获取全体股东对缩短通知期的书面豁免函
-3. **方案三**：改为召开董事会会议审议该事项（如权限允许）
-
-### 相关法规
-- 《公司法》第111条
-- 《上市公司股东会规则》第15条
-
-### 操作建议
-建议立即采取补救措施，避免后续决议被质疑效力。`;
-
-        const riskAlerts = [
-          "程序性风险：通知期限不足，可能导致决议效力瑕疵",
-          "诉讼风险：股东可能以此为由提起撤销之诉",
-          "监管风险：可能被监管部门关注并要求整改"
-        ];
-
-        const complianceScore = calculateComplianceScore(aiResponse);
-
-        const updatedRecord: ReviewRecord = {
-          ...record,
-          status: "completed",
-          aiThinking: thinkingProcess,
-          aiResponse: aiResponse,
-          riskAlerts: riskAlerts
-        };
-
-        setRecords(prev => prev.map(r => 
-          r.id === record.id ? updatedRecord : r
-        ));
-        setActiveRecord(updatedRecord);
-        setIsAnalyzing(false);
-        
-        // 如果是来自文书中心的文档，调用回调通知文书中心
-        if (sourceDocId && onReviewComplete) {
-          onReviewComplete(sourceDocId, complianceScore, record.id);
-        }
-      }, 3000);
+    } catch (error: any) {
+      console.error("合规审查错误:", error);
+      const errorRecord: ReviewRecord = {
+        ...record,
+        status: "error",
+        aiResponse: `## ❌ 审查失败\n\n**错误信息**：${error.message || "服务不可用"}\n\n请确认当前文件已经成功解析，然后重新点击审查。`,
+      };
+      setRecords(prev => prev.map(r => r.id === record.id ? errorRecord : r));
+      setActiveRecord(errorRecord);
+    } finally {
+      setIsAnalyzing(false);
     }
-  };
-
-  const extractRiskAlerts = (text: string): string[] => {
-    const alerts: string[] = [];
-    
-    if (text.includes('高风险') || text.includes('🔴')) {
-      alerts.push('程序性风险：需关注通知期限和程序合规性');
-    }
-    if (text.includes('中风险') || text.includes('⚠️')) {
-      alerts.push('实质性风险：需审查决议内容合法性');
-    }
-    if (text.includes('建议') || text.includes('修正')) {
-      alerts.push('合规建议：请参考 AI 输出的修正方案进行处理');
-    }
-    
-    if (alerts.length === 0) {
-      alerts.push('低风险：未发现明显合规问题');
-    }
-    
-    return alerts;
   };
 
   const triggerFileUpload = () => {
@@ -519,8 +435,17 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
         </h4>
         <div className="flex items-center gap-2">
           {activeRecord?.status === "completed" && (
-            <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded-full">
-              审查完成
+            <span className={cn(
+              "px-2 py-1 text-xs font-medium rounded-full",
+              activeRecord.reviewConclusion === "高风险"
+                ? "bg-red-100 text-red-700"
+                : activeRecord.reviewConclusion === "中风险"
+                  ? "bg-amber-100 text-amber-700"
+                  : "bg-green-100 text-green-700",
+            )}>
+              已完成核验
+              {activeRecord.reviewConclusion ? ` · ${activeRecord.reviewConclusion}` : ""}
+              {typeof activeRecord.complianceScore === "number" ? ` · ${activeRecord.complianceScore}/100` : ""}
             </span>
           )}
           <button
@@ -537,8 +462,8 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
             <Loader2 size={40} className="text-mck-blue animate-spin mx-auto mb-4" />
-            <p className="text-mck-navy/60 mb-2">AI 正在分析中...</p>
-            <p className="text-xs text-mck-navy/40">请稍候，审查结果即将生成</p>
+            <p className="text-mck-navy/60 mb-2">正在读取当前文件并逐项核验...</p>
+            <p className="text-xs text-mck-navy/40">日期、通知、出席、表决和签署均从当前材料提取</p>
           </div>
         </div>
       ) : activeRecord?.status === "completed" ? (
@@ -551,7 +476,7 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
               >
                 <span className="flex items-center gap-2">
                   <Brain size={12} />
-                  思考过程
+                  证据核验过程
                 </span>
                 {showThinking ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
               </button>
@@ -578,7 +503,10 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
             <div className="bg-white rounded-xl border border-blue-200 shadow-sm overflow-hidden">
               <div className="px-4 py-3 bg-gradient-to-r from-blue-50 to-white border-b border-blue-100 flex items-center gap-2">
                 <CheckCircle2 size={14} className="text-mck-blue" />
-                <span className="text-xs font-bold text-mck-blue">智能体审查结论</span>
+                <span className="text-xs font-bold text-mck-blue">
+                  当前文件审查结论
+                  {activeRecord.usedFeishu ? " · 已交叉核验飞书会议" : ""}
+                </span>
               </div>
               <div className="p-5">
                 <div className="prose prose-sm max-w-none" style={{ fontSize: '14px', lineHeight: '1.8' }}>
@@ -680,7 +608,7 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
                   <div className="border border-mck-border rounded-xl overflow-hidden bg-white/80">
                     <div className="px-4 py-3 bg-mck-bg/70 flex items-center gap-2">
                       <Brain size={14} />
-                      <span className="text-sm font-medium text-mck-navy/70">思考过程</span>
+                      <span className="text-sm font-medium text-mck-navy/70">证据核验过程</span>
                     </div>
                     <div className="p-6 bg-gray-50">
                       <pre className="text-sm text-mck-navy/70 whitespace-pre-wrap font-mono leading-relaxed">
@@ -694,7 +622,10 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
                   <div className="bg-white rounded-xl border border-blue-200 shadow-sm overflow-hidden">
                     <div className="px-4 py-3 bg-gradient-to-r from-blue-50 to-white border-b border-blue-100 flex items-center gap-2">
                       <CheckCircle2 size={16} className="text-mck-blue" />
-                      <span className="text-sm font-bold text-mck-blue">智能体审查结论</span>
+                      <span className="text-sm font-bold text-mck-blue">
+                        当前文件审查结论
+                        {activeRecord.usedFeishu ? " · 已交叉核验飞书会议" : ""}
+                      </span>
                     </div>
                     <div className="p-6">
                       <div className="prose prose-sm max-w-none" style={{ fontSize: '15px', lineHeight: '1.9' }}>

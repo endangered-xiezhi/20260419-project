@@ -12,6 +12,10 @@ import crypto from "crypto";
 import { extractDocumentPlainText, titleFromDocument } from "./lib/knowledgeExtract.js";
 import { glmChatCompletion } from "./lib/glmChat.js";
 import {
+  reviewMeetingDocument,
+  type ComplianceMeetingContext,
+} from "./lib/complianceReview.js";
+import {
   createFeishuMeeting,
   createFeishuProposals,
   createFeishuVotingDocument,
@@ -603,6 +607,72 @@ async function startServer() {
       console.error("GLM 调用失败:", e);
       res.status(500).json({
         error: e instanceof Error ? e.message : "GLM 调用失败",
+      });
+    }
+  });
+
+  /**
+   * 基于当前上传正文执行可回溯的会议合规审查。
+   * 文档中不存在的事实只会标记为“无法判断”，不会使用固定演示答案补齐。
+   */
+  app.post("/api/compliance/review", async (req, res) => {
+    try {
+      const { content, meetingId } = req.body as {
+        content?: string;
+        meetingId?: string;
+      };
+
+      if (typeof content !== "string" || !content.trim()) {
+        return res.status(400).json({
+          success: false,
+          error: "没有可审查的文档正文",
+        });
+      }
+
+      let meetingContext: ComplianceMeetingContext | undefined;
+      let feishuWarning = "";
+
+      if (typeof meetingId === "string" && meetingId.trim()) {
+        try {
+          const bundle = await getFeishuMeetingSourceBundle(meetingId.trim());
+          meetingContext = {
+            title: bundle.meeting.title,
+            type: bundle.meeting.type,
+            date: bundle.meeting.date,
+            noticeDate: bundle.meeting.noticeDate,
+            location: bundle.meeting.location,
+            companyName: bundle.meeting.companyName,
+            entityType: bundle.meeting.entityType,
+            participantNames: bundle.meeting.participantNames,
+            expectedAttendance: bundle.meeting.expectedAttendance,
+            actualAttendance: bundle.meeting.actualAttendance,
+            proposals: bundle.proposals.map((proposal) => proposal.title),
+            minutesContent: bundle.minutes.content,
+            missingFields: bundle.missingFields,
+          };
+        } catch (error) {
+          feishuWarning =
+            error instanceof Error ? error.message : "飞书会议数据读取失败";
+        }
+      }
+
+      const result = reviewMeetingDocument(content, meetingContext);
+      return res.json({
+        success: true,
+        data: {
+          ...result,
+          sources: {
+            document: true,
+            feishu: Boolean(meetingContext),
+            feishuWarning,
+          },
+        },
+      });
+    } catch (error) {
+      console.error("合规审查失败:", error);
+      return res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : "合规审查失败",
       });
     }
   });
