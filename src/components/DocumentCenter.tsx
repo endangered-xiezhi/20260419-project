@@ -4,6 +4,12 @@ import { cn } from "@/lib/utils";
 import { generateWordDocument, generateRegulationWord } from "@/utils/documentGenerator";
 import { downloadMeetingPackage, requestMeetingPackage, type MeetingPackageType } from "@/services/meetingPackage";
 import { getMeetingFromFeishu } from "@/services/feishuMeetings";
+import {
+  createVotingDocument,
+  getVotingContext,
+  submitVotingOpinion,
+  type VotingContext,
+} from "@/services/feishuVoting";
 
 // 一级分类类型：会议文件 / 制度文件
 type DocumentLevel1Category = 'meeting' | 'regulation';
@@ -50,6 +56,8 @@ interface GeneratedDocument {
   // 会议纪要导入专用字段
   isImportedMinutes?: boolean;
   sourceRecordId?: string;
+  feishuRecordId?: string;
+  syncStatus?: 'synced' | 'local';
 }
 
 // 导入的会议纪要记录类型
@@ -81,8 +89,15 @@ interface EmailDocument {
 // 表单数据类型
 interface VotingFormData {
   meetingDate: string;
+  meetingId: string;
+  shareholderId: string;
   shareholderName: string;
   shares: string;
+  shareholding: string;
+  votingRights: string;
+  proposalId: string;
+  proposalNumber: string;
+  proposalTitle: string;
 }
 
 interface VotingStatsFormData {
@@ -342,7 +357,7 @@ const generateDocumentContent = (meetingTitle: string, type: string, typeName: s
   const templates: Record<string, string> = {
     voting: (() => {
       const data = formData as VotingFormData;
-      return `${meetingTitle}表决票\n\n会议日期：${data?.meetingDate || '____年__月__日'}\n股东名称：${data?.shareholderName || '______________'}\n持股数量：${data?.shares || '______________'}\n\n表决事项：\n□ 同意  □ 反对  □ 弃权\n\n股东签名：______________`;
+      return `${meetingTitle}表决票\n\n会议日期：${data?.meetingDate || '____年__月__日'}\n股东名称：${data?.shareholderName || '______________'}\n持股数量：${data?.shares || '______________'}${data?.shareholding ? `\n持股比例：${data.shareholding}` : ''}\n\n表决事项：${data?.proposalNumber ? `\n${data.proposalNumber}` : ''}\n${data?.proposalTitle || '______________'}\n\n表决意见：\n□ 同意  □ 反对  □ 弃权\n\n说明：本票生成时为空白表决票，勾选并签署后方构成真实表决意见。\n\n股东签名：______________`;
     })(),
     
     voting_stats: (() => {
@@ -1383,14 +1398,27 @@ const BoardNoticeForm: React.FC<{
 const DocumentFormModal: React.FC<{
   template: DocumentTemplate;
   meetingTitle: string;
+  meetingId?: string;
   onClose: () => void;
-  onGenerate: (content: string, formData: any) => void;
-}> = ({ template, meetingTitle, onClose, onGenerate }) => {
+  onGenerate: (content: string, formData: any) => void | Promise<void>;
+  onBatchGenerate: (items: VotingFormData[]) => void | Promise<void>;
+}> = ({ template, meetingTitle, meetingId, onClose, onGenerate, onBatchGenerate }) => {
   const [formData, setFormData] = useState<FormData>(() => {
     const today = new Date().toISOString().split('T')[0];
     switch (template.id) {
       case 'voting':
-        return { meetingDate: today, shareholderName: '', shares: '' } as VotingFormData;
+        return {
+          meetingDate: today,
+          meetingId: meetingId || '',
+          shareholderId: '',
+          shareholderName: '',
+          shares: '',
+          shareholding: '',
+          votingRights: '',
+          proposalId: '',
+          proposalNumber: '',
+          proposalTitle: '',
+        } as VotingFormData;
       case 'voting_stats':
         return { meetingDate: today, meetingTime: '', meetingLocation: '公司会议室', attendeeCount: '', totalShareholders: '', shareholderRatio: '', representedShares: '', votingRatio: '' } as VotingStatsFormData;
       case 'agenda':
@@ -1420,22 +1448,255 @@ const DocumentFormModal: React.FC<{
       case 'board_notice':
         return { meetingDate: today, meetingTime: '', companyName: '', meetingNumber: '', contactName: '', contactPhone: '', proposalName: '', noticeDate: today } as BoardNoticeFormData;
       default:
-        return {};
+        return {} as FormData;
     }
   });
 
   const availableAttendees = getAttendees();
+  const [votingContext, setVotingContext] = useState<VotingContext | null>(null);
+  const [contextLoading, setContextLoading] = useState(template.id === 'voting');
+  const [actionLoading, setActionLoading] = useState<'single' | 'batch' | 'vote' | null>(null);
+  const [actionMessage, setActionMessage] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [selectedOpinion, setSelectedOpinion] = useState<"同意" | "反对" | "弃权" | ''>('');
 
-  const handleGenerate = () => {
+  useEffect(() => {
+    if (template.id !== 'voting') return;
+    if (!meetingId) {
+      setContextLoading(false);
+      setActionError('当前没有会议编号，请先从会议列表进入文书中心。');
+      return;
+    }
+    let active = true;
+    setContextLoading(true);
+    getVotingContext(meetingId)
+      .then(({ context }) => {
+        if (!active) return;
+        setVotingContext(context);
+        setFormData((current) => ({
+          ...(current as VotingFormData),
+          meetingId,
+          meetingDate: context.meeting.date || (current as VotingFormData).meetingDate,
+        }));
+      })
+      .catch((error) => {
+        if (active) setActionError(error instanceof Error ? error.message : '飞书数据读取失败');
+      })
+      .finally(() => {
+        if (active) setContextLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [meetingId, template.id]);
+
+  const handleGenerate = async () => {
+    const votingData = formData as VotingFormData;
+    if (template.id === 'voting' && (!votingData.shareholderId || !votingData.proposalId)) {
+      setActionError('请先选择股东和关联议案。');
+      return;
+    }
+    setActionError('');
+    setActionMessage('');
+    setActionLoading('single');
     const content = generateDocumentContent(meetingTitle, template.id, template.name, formData);
-    onGenerate(content, formData);
-    onClose();
+    try {
+      await onGenerate(content, formData);
+      if (template.id === 'voting') {
+        setActionMessage('空白表决票已生成，并已在飞书“文书表”创建记录。');
+      } else {
+        onClose();
+      }
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : '文书生成失败');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const selectShareholder = (shareholderId: string) => {
+    const shareholder = votingContext?.shareholders.find((item) => item.id === shareholderId);
+    setFormData((current) => ({
+      ...(current as VotingFormData),
+      shareholderId,
+      shareholderName: shareholder?.name || '',
+      shares: shareholder?.shares || '',
+      shareholding: shareholder?.shareholding || '',
+      votingRights: shareholder?.votingRights || shareholder?.shares || '',
+    }));
+  };
+
+  const selectProposal = (proposalId: string) => {
+    const proposal = votingContext?.proposals.find((item) => item.id === proposalId);
+    setFormData((current) => ({
+      ...(current as VotingFormData),
+      proposalId,
+      proposalNumber: proposal?.number || '',
+      proposalTitle: proposal?.title || '',
+    }));
+  };
+
+  const handleBatchGenerate = async () => {
+    if (!votingContext?.shareholders.length) {
+      setActionError('飞书“股东表”中没有可用股东。');
+      return;
+    }
+    const current = formData as VotingFormData;
+    const proposals = current.proposalId
+      ? votingContext.proposals.filter((item) => item.id === current.proposalId)
+      : votingContext.proposals;
+    if (!proposals.length) {
+      setActionError('当前会议没有关联议案，请先在飞书“议案表”添加关联会议。');
+      return;
+    }
+    const items = votingContext.shareholders.flatMap((shareholder) =>
+      proposals.map((proposal) => ({
+        ...current,
+        meetingId: meetingId || '',
+        shareholderId: shareholder.id,
+        shareholderName: shareholder.name,
+        shares: shareholder.shares,
+        shareholding: shareholder.shareholding,
+        votingRights: shareholder.votingRights || shareholder.shares,
+        proposalId: proposal.id,
+        proposalNumber: proposal.number,
+        proposalTitle: proposal.title,
+      })),
+    );
+    setActionError('');
+    setActionMessage('');
+    setActionLoading('batch');
+    try {
+      await onBatchGenerate(items);
+      setActionMessage(`已生成 ${items.length} 份空白表决票，并写入飞书“文书表”；没有写入任何表决意见。`);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : '批量生成失败');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleSubmitVote = async () => {
+    const current = formData as VotingFormData;
+    if (!current.meetingId || !current.shareholderId || !current.proposalId || !selectedOpinion) {
+      setActionError('请先选择股东、议案和真实表决意见。');
+      return;
+    }
+    setActionError('');
+    setActionMessage('');
+    setActionLoading('vote');
+    try {
+      const result = await submitVotingOpinion({
+        meetingId: current.meetingId,
+        shareholderId: current.shareholderId,
+        proposalId: current.proposalId,
+        opinion: selectedOpinion,
+        votingRights: current.votingRights,
+      });
+      setActionMessage(
+        result.vote.action === 'created'
+          ? `真实表决“${selectedOpinion}”已写入飞书“表决表”。`
+          : `飞书“表决表”中的原表决记录已更新为“${selectedOpinion}”。`,
+      );
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : '真实表决提交失败');
+    } finally {
+      setActionLoading(null);
+    }
   };
 
   const renderForm = () => {
     switch (template.id) {
       case 'voting':
-        return <VotingForm data={formData as VotingFormData} onChange={(d) => setFormData(d)} />;
+        {
+          const current = formData as VotingFormData;
+          const batchCount = (votingContext?.shareholders.length || 0) *
+            (current.proposalId ? 1 : (votingContext?.proposals.length || 0));
+          return (
+            <div className="space-y-5">
+              <div className="rounded-2xl border border-cyan-100 bg-gradient-to-r from-cyan-50 to-blue-50 p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-bold tracking-wide text-cyan-800">飞书实时数据</p>
+                    <p className="mt-1 text-sm text-slate-700">
+                      {contextLoading ? '正在读取会议、股东和议案…' : `已读取 ${votingContext?.shareholders.length || 0} 名股东、${votingContext?.proposals.length || 0} 项议案`}
+                    </p>
+                  </div>
+                  {contextLoading ? <Loader2 className="animate-spin text-cyan-700" size={20} /> : <ShieldCheck className="text-emerald-600" size={22} />}
+                </div>
+                {!!votingContext?.pendingFields.length && (
+                  <p className="mt-2 text-xs text-amber-700">
+                    飞书仍缺少字段：{votingContext.pendingFields.join('、')}。页面会继续工作，但对应内容可能为空。
+                  </p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div>
+                  <label className="mb-1.5 block text-xs font-bold text-slate-600">会议日期（自动读取）</label>
+                  <input value={current.meetingDate} readOnly className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700" />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-bold text-slate-600">股东名称（飞书股东表）</label>
+                  <select value={current.shareholderId} onChange={(event) => selectShareholder(event.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-cyan-600">
+                    <option value="">请选择股东</option>
+                    {votingContext?.shareholders.map((shareholder) => <option key={shareholder.id} value={shareholder.id}>{shareholder.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-bold text-slate-600">持股数量（自动带出）</label>
+                  <input value={current.shares || (current.shareholding ? `持股比例 ${current.shareholding}` : '')} readOnly placeholder="飞书股东表尚未填写持股数量" className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700" />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-bold text-slate-600">会议关联议案（自动筛选）</label>
+                  <select value={current.proposalId} onChange={(event) => selectProposal(event.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-cyan-600">
+                    <option value="">请选择议案</option>
+                    {votingContext?.proposals.map((proposal) => <option key={proposal.id} value={proposal.id}>{proposal.number ? `${proposal.number} · ` : ''}{proposal.title}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h4 className="font-bold text-slate-900">第一步：生成空白表决票</h4>
+                    <p className="mt-1 text-xs text-slate-500">只在“文书表”建记录，不会写入同意、反对或弃权。</p>
+                  </div>
+                  <div className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">文书 ≠ 投票</div>
+                </div>
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <button onClick={handleGenerate} disabled={!!actionLoading || contextLoading} className="rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-slate-900/10 transition hover:-translate-y-0.5 disabled:opacity-50">
+                    {actionLoading === 'single' ? '正在生成…' : '生成当前股东空白票'}
+                  </button>
+                  <button onClick={handleBatchGenerate} disabled={!!actionLoading || contextLoading || !batchCount} className="rounded-xl border border-cyan-200 bg-cyan-50 px-5 py-2.5 text-sm font-bold text-cyan-800 transition hover:bg-cyan-100 disabled:opacity-50">
+                    {actionLoading === 'batch' ? '正在批量生成…' : `为全部股东批量生成（${batchCount}份）`}
+                  </button>
+                </div>
+                <p className="mt-2 text-[11px] text-slate-400">
+                  已选择议案时：每名股东生成 1 份；未选择议案时：为每名股东的每项议案各生成 1 份。
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 p-5">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="mt-0.5 shrink-0 text-amber-600" size={20} />
+                  <div>
+                    <h4 className="font-bold text-slate-900">第二步：收到真实意见后再登记</h4>
+                    <p className="mt-1 text-xs leading-5 text-slate-600">只有收到股东真实表决意见后，才在这里选择并确认。确认后才会写入飞书“表决表”。</p>
+                  </div>
+                </div>
+                <div className="mt-4 grid grid-cols-3 gap-2">
+                  {(['同意', '反对', '弃权'] as const).map((opinion) => (
+                    <button key={opinion} onClick={() => setSelectedOpinion(opinion)} className={cn("rounded-xl border px-3 py-2.5 text-sm font-bold transition", selectedOpinion === opinion ? "border-amber-500 bg-amber-500 text-white shadow-md" : "border-amber-200 bg-white text-slate-700 hover:border-amber-400")}>{opinion}</button>
+                  ))}
+                </div>
+                <button onClick={handleSubmitVote} disabled={!!actionLoading || !selectedOpinion || !current.shareholderId || !current.proposalId} className="mt-3 w-full rounded-xl bg-amber-600 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-amber-600/20 transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-40">
+                  {actionLoading === 'vote' ? '正在写入飞书…' : '确认这是实际投票，并写入表决表'}
+                </button>
+              </div>
+            </div>
+          );
+        }
       case 'voting_stats':
         return <VotingStatsForm data={formData as VotingStatsFormData} onChange={(d) => setFormData(d)} />;
       case 'agenda':
@@ -1470,39 +1731,43 @@ const DocumentFormModal: React.FC<{
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white w-full max-w-2xl max-h-[90vh] rounded-xl shadow-2xl flex flex-col">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-mck-border">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-4 backdrop-blur-md">
+      <div className={cn("flex max-h-[92vh] w-full flex-col overflow-hidden rounded-[28px] border border-white/20 bg-white shadow-[0_35px_100px_-20px_rgba(2,16,40,0.55)]", template.id === 'voting' ? "max-w-4xl" : "max-w-2xl")}>
+        <div className="relative flex items-center justify-between overflow-hidden bg-gradient-to-r from-slate-950 via-slate-900 to-cyan-950 px-7 py-5">
+          <div className="pointer-events-none absolute -right-12 -top-16 h-40 w-40 rounded-full bg-cyan-400/20 blur-3xl" />
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-mck-blue/10 flex items-center justify-center">
-              <FileText size={20} className="text-mck-blue" />
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/15 bg-white/10 shadow-inner">
+              <FileText size={21} className="text-cyan-300" />
             </div>
             <div>
-              <h3 className="font-medium text-mck-navy">{template.name}</h3>
-              <p className="text-[10px] text-mck-navy/40">请填写文书信息（选填）</p>
+              <h3 className="font-bold text-white">{template.name}</h3>
+              <p className="mt-0.5 text-[11px] text-slate-300">{template.id === 'voting' ? '飞书数据联动 · 空白文书与真实表决分开处理' : '填写文书信息并生成标准文件'}</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-mck-bg rounded-full">
-            <X size={20} className="text-mck-navy/60" />
+          <button onClick={onClose} className="relative rounded-full p-2 text-white/70 transition hover:bg-white/10 hover:text-white">
+            <X size={20} />
           </button>
         </div>
-        <div className="flex-1 overflow-auto p-6">
+        <div className="flex-1 overflow-auto bg-slate-50/70 p-6 md:p-7">
+          {actionError && <div className="mb-4 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700"><AlertCircle className="mt-0.5 shrink-0" size={17} />{actionError}</div>}
+          {actionMessage && <div className="mb-4 flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700"><Check className="mt-0.5 shrink-0" size={17} />{actionMessage}</div>}
           {renderForm()}
         </div>
-        <div className="px-6 py-4 border-t border-mck-border flex justify-end gap-3">
+        {template.id !== 'voting' && <div className="flex justify-end gap-3 border-t border-slate-200 bg-white px-6 py-4">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm text-mck-navy/60 hover:bg-mck-bg rounded-lg"
+            className="rounded-xl px-4 py-2 text-sm text-slate-500 hover:bg-slate-100"
           >
             取消
           </button>
           <button
             onClick={handleGenerate}
-            className="px-6 py-2 bg-mck-blue text-white text-sm font-bold rounded-lg hover:bg-mck-navy transition-all"
+            disabled={!!actionLoading}
+            className="rounded-xl bg-slate-900 px-6 py-2 text-sm font-bold text-white transition hover:bg-cyan-800 disabled:opacity-50"
           >
-            生成文书
+            {actionLoading === 'single' ? '生成中…' : '生成文书'}
           </button>
-        </div>
+        </div>}
       </div>
     </div>
   );
@@ -2073,7 +2338,7 @@ ${new Date().toLocaleDateString('zh-CN')}`,
     setFormTemplate(template);
   };
 
-  const handleGenerateDocument = (content: string, formData?: any) => {
+  const handleGenerateDocument = async (content: string, formData?: any) => {
     if (!formTemplate) return;
 
     // 根据文书模板id判断会议类型
@@ -2100,10 +2365,14 @@ ${new Date().toLocaleDateString('zh-CN')}`,
       // 会议文件生成
       if (!meetingTitle.trim()) return;
       const meetingType = documentTypeMeetingType[formTemplate.id] || 'shareholder';
+      const votingData = formTemplate.id === 'voting' ? formData as VotingFormData : null;
+      const documentName = votingData
+        ? `${meetingTitle}-${votingData.shareholderName}-${votingData.proposalTitle || '表决事项'}表决票`
+        : `${meetingTitle}${formTemplate.name}`;
 
       const newDoc: GeneratedDocument = {
         id: `doc-${Date.now()}-${formTemplate.id}`,
-        name: `${meetingTitle}${formTemplate.name}`,
+        name: documentName,
         type: formTemplate.id,
         typeName: formTemplate.name,
         meetingTitle: meetingTitle,
@@ -2112,15 +2381,73 @@ ${new Date().toLocaleDateString('zh-CN')}`,
         level2Category: meetingType,
         date: new Date().toLocaleDateString('zh-CN'),
         content: content,
-        formData: formData
+        formData: formData,
+        syncStatus: votingData ? 'local' : undefined,
       };
+
+      if (votingData) {
+        const result = await createVotingDocument({
+          meetingId: votingData.meetingId,
+          shareholderId: votingData.shareholderId,
+          shareholderName: votingData.shareholderName,
+          proposalId: votingData.proposalId,
+          proposalTitle: votingData.proposalTitle,
+          title: documentName,
+          content,
+        });
+        newDoc.feishuRecordId = result.document.recordId;
+        newDoc.syncStatus = 'synced';
+      }
 
       saveMeetingTitle(meetingTitle);
       setMeetingHistory(getMeetingHistory());
 
       setGeneratedDocs(prev => [newDoc, ...prev]);
-      setFormTemplate(null);
+      if (!votingData) setFormTemplate(null);
     }
+  };
+
+  const handleBatchGenerateVotingDocuments = async (items: VotingFormData[]) => {
+    if (!formTemplate || formTemplate.id !== 'voting' || !items.length) return;
+    const createdDocs: GeneratedDocument[] = [];
+
+    // 分小批写入，避免一次性请求过多触发飞书接口限流。
+    for (let index = 0; index < items.length; index += 5) {
+      const group = items.slice(index, index + 5);
+      const groupDocs = await Promise.all(group.map(async (item, offset) => {
+        const content = generateDocumentContent(meetingTitle, 'voting', '表决票', item);
+        const name = `${meetingTitle}-${item.shareholderName}-${item.proposalTitle || '表决事项'}表决票`;
+        const result = await createVotingDocument({
+          meetingId: item.meetingId,
+          shareholderId: item.shareholderId,
+          shareholderName: item.shareholderName,
+          proposalId: item.proposalId,
+          proposalTitle: item.proposalTitle,
+          title: name,
+          content,
+        });
+        return {
+          id: `doc-${Date.now()}-${index + offset}-voting`,
+          name,
+          type: 'voting',
+          typeName: '表决票',
+          meetingTitle,
+          meetingType: 'shareholder' as const,
+          level1Category: 'meeting' as const,
+          level2Category: 'shareholder' as const,
+          date: new Date().toLocaleDateString('zh-CN'),
+          content,
+          formData: item,
+          feishuRecordId: result.document.recordId,
+          syncStatus: 'synced' as const,
+        };
+      }));
+      createdDocs.push(...groupDocs);
+    }
+
+    saveMeetingTitle(meetingTitle);
+    setMeetingHistory(getMeetingHistory());
+    setGeneratedDocs((previous) => [...createdDocs, ...previous]);
   };
 
   const handleSelectHistory = (title: string) => {
@@ -2979,8 +3306,10 @@ ${email.body}`;
         <DocumentFormModal
           template={formTemplate}
           meetingTitle={meetingTitle}
+          meetingId={meetingId || undefined}
           onClose={() => setFormTemplate(null)}
           onGenerate={handleGenerateDocument}
+          onBatchGenerate={handleBatchGenerateVotingDocuments}
         />
       )}
 

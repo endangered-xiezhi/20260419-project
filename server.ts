@@ -13,14 +13,19 @@ import { extractDocumentPlainText, titleFromDocument } from "./lib/knowledgeExtr
 import { glmChatCompletion } from "./lib/glmChat.js";
 import {
   createFeishuMeeting,
+  createFeishuVotingDocument,
   deleteFeishuMeeting,
   getFeishuConfiguration,
   getFeishuMeeting,
+  getFeishuVotingContext,
   listFeishuPersonnel,
   listFeishuMeetings,
   listFeishuTables,
+  submitFeishuVote,
   updateFeishuMeeting,
   type FeishuMeetingInput,
+  type FeishuVoteInput,
+  type FeishuVotingDocumentInput,
 } from "./lib/feishu.js";
 import { createMeetingPackage, type MeetingPackageType } from "./lib/meetingPackage.js";
 
@@ -228,6 +233,33 @@ async function startServer() {
     try {
       await deleteFeishuMeeting(req.params.recordId);
       return res.json({ success: true });
+    } catch (error) {
+      return feishuApiError(res, error);
+    }
+  });
+
+  app.get("/api/feishu/meetings/:recordId/voting-context", async (req, res) => {
+    try {
+      const context = await getFeishuVotingContext(req.params.recordId);
+      return res.json({ success: true, context, syncedAt: new Date().toISOString() });
+    } catch (error) {
+      return feishuApiError(res, error);
+    }
+  });
+
+  app.post("/api/feishu/documents", async (req, res) => {
+    try {
+      const document = await createFeishuVotingDocument(req.body as FeishuVotingDocumentInput);
+      return res.status(201).json({ success: true, document });
+    } catch (error) {
+      return feishuApiError(res, error);
+    }
+  });
+
+  app.post("/api/feishu/votes", async (req, res) => {
+    try {
+      const vote = await submitFeishuVote(req.body as FeishuVoteInput);
+      return res.status(vote.action === "created" ? 201 : 200).json({ success: true, vote });
     } catch (error) {
       return feishuApiError(res, error);
     }

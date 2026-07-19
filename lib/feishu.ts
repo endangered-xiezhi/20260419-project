@@ -663,3 +663,251 @@ export async function deleteFeishuMeeting(recordId: string) {
     { method: "DELETE" },
   );
 }
+
+export type FeishuVotingShareholder = {
+  id: string;
+  name: string;
+  shares: string;
+  shareholding: string;
+  votingRights: string;
+};
+
+export type FeishuVotingProposal = {
+  id: string;
+  number: string;
+  title: string;
+  content: string;
+};
+
+export type FeishuVotingContext = {
+  meeting: {
+    id: string;
+    title: string;
+    date: string;
+    type: string;
+  };
+  shareholders: FeishuVotingShareholder[];
+  proposals: FeishuVotingProposal[];
+  pendingFields: string[];
+};
+
+async function getRecordById(
+  token: string,
+  appToken: string,
+  tableId: string,
+  recordId: string,
+) {
+  const result = await feishuRequest<FeishuRecordResponse>(
+    `/bitable/v1/apps/${encodeURIComponent(appToken)}/tables/${encodeURIComponent(tableId)}/records/${encodeURIComponent(recordId)}`,
+    token,
+  );
+  if (!result.data?.record) throw new Error("飞书没有返回指定记录");
+  return result.data.record;
+}
+
+export async function getFeishuVotingContext(meetingId: string): Promise<FeishuVotingContext> {
+  if (!meetingId?.trim()) throw new Error("会议编号不能为空");
+  const { token, appToken } = await getBitableContext();
+  const meetingTableId = await resolveTableId(
+    token,
+    appToken,
+    "FEISHU_MEETING_TABLE_ID",
+    ["会议表"],
+  );
+  const shareholderTableId = await resolveTableId(
+    token,
+    appToken,
+    "FEISHU_SHAREHOLDER_TABLE_ID",
+    ["股东表"],
+  );
+  const proposalTableId = await resolveTableId(
+    token,
+    appToken,
+    "FEISHU_PROPOSAL_TABLE_ID",
+    ["议案表"],
+  );
+
+  const [meetingRecord, shareholderRecords, proposalRecords, shareholderFields, proposalFields] =
+    await Promise.all([
+      getRecordById(token, appToken, meetingTableId, meetingId),
+      listRecordsByTableId(token, appToken, shareholderTableId),
+      listRecordsByTableId(token, appToken, proposalTableId),
+      getTableFieldNames(token, appToken, shareholderTableId),
+      getTableFieldNames(token, appToken, proposalTableId),
+    ]);
+
+  const participantShareholderIds = new Set(
+    relationRecordIds(meetingRecord.fields["参会股东"]),
+  );
+  const applicableShareholders = participantShareholderIds.size
+    ? shareholderRecords.filter((record) => participantShareholderIds.has(record.record_id))
+    : shareholderRecords;
+
+  const shareholders = applicableShareholders
+    .map((record) => ({
+      id: record.record_id,
+      name: readableValue(
+        record.fields["股东名称"] ?? record.fields["股东姓名"] ?? record.fields["名称"],
+      ),
+      shares: readableValue(
+        record.fields["持股数量"] ?? record.fields["持股数"] ?? record.fields["股份数量"],
+      ),
+      shareholding: readableValue(record.fields["持股比例"]),
+      votingRights: readableValue(
+        record.fields["表决权数量"] ??
+          record.fields["票权数"] ??
+          record.fields["持股数量"] ??
+          record.fields["持股数"],
+      ),
+    }))
+    .filter((shareholder) => shareholder.name)
+    .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
+
+  const proposals = proposalRecords
+    .filter((record) => relationRecordIds(record.fields["关联会议"]).includes(meetingId))
+    .map((record) => ({
+      id: record.record_id,
+      number: readableValue(record.fields["议案编号"]),
+      title: readableValue(
+        record.fields["议案标题"] ?? record.fields["议案名称"] ?? record.fields["名称"],
+      ),
+      content: readableValue(record.fields["议案正文"] ?? record.fields["议案内容"]),
+    }))
+    .filter((proposal) => proposal.title);
+
+  const pendingFields: string[] = [];
+  if (![...shareholderFields].some((name) => ["持股数量", "持股数", "股份数量"].includes(name))) {
+    pendingFields.push("股东表.持股数量");
+  }
+  if (![...proposalFields].some((name) => ["议案正文", "议案内容"].includes(name))) {
+    pendingFields.push("议案表.议案正文");
+  }
+
+  return {
+    meeting: {
+      id: meetingRecord.record_id,
+      title: readableValue(meetingRecord.fields["会议标题"] ?? meetingRecord.fields["会议名称"]),
+      date: dateValue(meetingRecord.fields["会议日期"] ?? meetingRecord.fields["会议时间"]),
+      type: readableValue(meetingRecord.fields["会议类型"]),
+    },
+    shareholders,
+    proposals,
+    pendingFields,
+  };
+}
+
+export type FeishuVotingDocumentInput = {
+  meetingId: string;
+  shareholderId: string;
+  shareholderName: string;
+  proposalId?: string;
+  proposalTitle?: string;
+  title: string;
+  content: string;
+};
+
+export async function createFeishuVotingDocument(input: FeishuVotingDocumentInput) {
+  if (!input.meetingId || !input.shareholderId || !input.title.trim() || !input.content.trim()) {
+    throw new Error("会议、股东、文书名称和文书正文不能为空");
+  }
+  const { token, appToken } = await getBitableContext();
+  const tableId = await resolveTableId(
+    token,
+    appToken,
+    "FEISHU_DOCUMENT_TABLE_ID",
+    ["文书表"],
+  );
+  const availableFields = await getTableFieldNames(token, appToken, tableId);
+  const fields: Record<string, unknown> = {};
+  const pendingFields: string[] = [];
+  const put = (name: string, value: unknown, required = false) => {
+    if (availableFields.has(name)) fields[name] = value;
+    else if (required) pendingFields.push(`文书表.${name}`);
+  };
+
+  put("文书名称", input.title, true);
+  // 现有飞书表的选项中包含“其他文书”，可以兼容尚未新增“表决票”选项的 Base。
+  put("文书类型", "其他文书");
+  put("文书正文", input.content, true);
+  put("关联会议", [input.meetingId], true);
+  put("关联议案", input.proposalId ? [input.proposalId] : [], Boolean(input.proposalId));
+  put("关联股东", [input.shareholderId], true);
+  put("生成状态", "已生成");
+  put(
+    "生成备注",
+    `空白表决票；股东：${input.shareholderName}；议案：${input.proposalTitle || "未指定"}。本记录不代表已经投票。`,
+  );
+
+  const result = await feishuRequest<FeishuRecordResponse>(
+    `/bitable/v1/apps/${encodeURIComponent(appToken)}/tables/${encodeURIComponent(tableId)}/records`,
+    token,
+    { method: "POST", body: JSON.stringify({ fields }) },
+  );
+  if (!result.data?.record) throw new Error("飞书没有返回新建的文书记录");
+  return {
+    recordId: result.data.record.record_id,
+    pendingFields: [...new Set(pendingFields)],
+  };
+}
+
+export type FeishuVoteInput = {
+  meetingId: string;
+  proposalId: string;
+  shareholderId: string;
+  opinion: "同意" | "反对" | "弃权";
+  votingRights?: string;
+};
+
+export async function submitFeishuVote(input: FeishuVoteInput) {
+  if (!input.meetingId || !input.proposalId || !input.shareholderId) {
+    throw new Error("会议、议案和投票股东不能为空");
+  }
+  if (!["同意", "反对", "弃权"].includes(input.opinion)) {
+    throw new Error("表决意见只能是同意、反对或弃权");
+  }
+
+  const { token, appToken } = await getBitableContext();
+  const tableId = await resolveTableId(
+    token,
+    appToken,
+    "FEISHU_VOTE_TABLE_ID",
+    ["表决表"],
+  );
+  const [availableFields, records] = await Promise.all([
+    getTableFieldNames(token, appToken, tableId),
+    listRecordsByTableId(token, appToken, tableId),
+  ]);
+  const fields: Record<string, unknown> = {};
+  const pendingFields: string[] = [];
+  const put = (name: string, value: unknown, required = false) => {
+    if (availableFields.has(name)) fields[name] = value;
+    else if (required) pendingFields.push(`表决表.${name}`);
+  };
+
+  put("关联会议", [input.meetingId], true);
+  put("关联议案", [input.proposalId], true);
+  put("投票股东", [input.shareholderId], true);
+  put("表决意见", input.opinion, true);
+  put("是否回避", false);
+  put("表决时间", Date.now());
+  if (input.votingRights) put("票权数", Number(input.votingRights) || input.votingRights);
+  put("有效性", "有效");
+  put("计票状态", "已计票");
+
+  const existing = records.find((record) =>
+    relationRecordIds(record.fields["关联会议"]).includes(input.meetingId) &&
+    relationRecordIds(record.fields["关联议案"]).includes(input.proposalId) &&
+    relationRecordIds(record.fields["投票股东"]).includes(input.shareholderId),
+  );
+  const path = `/bitable/v1/apps/${encodeURIComponent(appToken)}/tables/${encodeURIComponent(tableId)}/records${existing ? `/${encodeURIComponent(existing.record_id)}` : ""}`;
+  const result = await feishuRequest<FeishuRecordResponse>(path, token, {
+    method: existing ? "PUT" : "POST",
+    body: JSON.stringify({ fields }),
+  });
+  if (!result.data?.record) throw new Error("飞书没有返回表决记录");
+  return {
+    recordId: result.data.record.record_id,
+    action: existing ? "updated" as const : "created" as const,
+    pendingFields: [...new Set(pendingFields)],
+  };
+}
