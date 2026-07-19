@@ -44,13 +44,8 @@
 系统采用 `localStorage` 进行本地化存储，确保在切换标签页或刷新页面时数据不会丢失。您可以在"系统设置"中管理或重置这些本地数据。
 
 ## 团队协作 (Team Collaboration)
-
-本项目由 4 名同学协同开发，详细的协作指南请查看：
-
-- **[协作文档索引](./docs/COLLABORATION_INDEX.md)** - 快速找到所需文档
-- **[团队协作指南](./docs/TEAM_COLLABORATION.md)** - 完整的角色分配、Git 工作流和开发规范
-- **[项目管理看板](./docs/PROJECT_BOARD.md)** - 实时任务分配和进度跟踪
-- **[快速启动指南](./docs/QUICK_START_COLLAB.md)** - 新成员 5 分钟上手教程
+- lyr：飞书多维表格制作+全面代码协助
+- gbj：想法+修改代码+接render
 
 ## 项目文档 (Project Documentation)
 
@@ -90,14 +85,7 @@
    - 等待代码审查
    - 合并到 `develop` 分支
 
-### 角色分工
 
-| 角色 | 负责人 | 主要职责 |
-|------|--------|----------|
-| 项目负责人 | 同学 A | 架构设计、代码审查、技术攻关 |
-| 前端开发 | 同学 B | UI/UX、组件开发、样式管理 |
-| 后端 & AI | 同学 C | API 开发、服务器配置、AI 集成 |
-| 测试 & 文档 | 同学 D | 功能测试、Bug 修复、文档编写 |
 
 详细的模块划分和任务分配请查看 [PROJECT_BOARD.md](./docs/PROJECT_BOARD.md)。
 
@@ -148,7 +136,7 @@ git commit -m "fix(recording): resolve scrollRef null error"
 
 ---
 
-**最后更新：** 2026-03-31
-**当前版本：** 0.0.0
+**最后更新：** 2026-07-19
+**当前版本：** 2.0
 **开发状态：** 活跃开发中
 
