@@ -1843,6 +1843,9 @@ export const DocumentCenter: React.FC<DocumentCenterProps> = ({ meetingId, editE
   const [level2Category, setLevel2Category] = useState<MeetingCategory | RegulationCategory | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<DocumentTemplate | null>(null);
   const [meetingTitle, setMeetingTitle] = useState('');
+  const [documentMeetings, setDocumentMeetings] = useState<ApiMeeting[]>([]);
+  const [selectedDocumentMeetingId, setSelectedDocumentMeetingId] = useState(meetingId || '');
+  const [documentMeetingsLoading, setDocumentMeetingsLoading] = useState(false);
   const [meetingSyncHint, setMeetingSyncHint] = useState('');
   const [meetingHistory, setMeetingHistory] = useState<string[]>([]);
   const [showHistory, setShowHistory] = useState(false);
@@ -1906,6 +1909,38 @@ export const DocumentCenter: React.FC<DocumentCenterProps> = ({ meetingId, editE
       active = false;
     };
   }, [meetingId]);
+
+  useEffect(() => {
+    if (!showGenerator || level1Category !== 'meeting') return;
+    let active = true;
+    setDocumentMeetingsLoading(true);
+    listMeetingsFromFeishu()
+      .then(({ meetings }) => {
+        if (active) setDocumentMeetings(meetings);
+      })
+      .catch(() => {
+        if (active) setDocumentMeetings([]);
+      })
+      .finally(() => {
+        if (active) setDocumentMeetingsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [showGenerator, level1Category]);
+
+  const selectDocumentMeeting = (recordId: string) => {
+    setSelectedDocumentMeetingId(recordId);
+    const selected = documentMeetings.find((item) => item.id === recordId);
+    setMeetingTitle(selected?.title || '');
+  };
+
+  const meetingsForCategory = (category: MeetingCategory) => documentMeetings.filter((item) => {
+    if (category === 'shareholder') return item.type.includes('股东');
+    if (category === 'board') return item.type.includes('董事');
+    if (category === 'supervisor') return item.type.includes('监事');
+    return true;
+  });
 
   // 监听合规审查完成事件，更新审查结果
   useEffect(() => {
@@ -2571,7 +2606,7 @@ ${new Date().toLocaleDateString('zh-CN')}`,
     setPackageBusyKey(busyKey);
     try {
       const result = await requestMeetingPackage({
-        meetingId,
+        meetingId: selectedDocumentMeetingId || meetingId || undefined,
         meetingTitle: title.trim(),
         meetingType,
         values: collectMeetingPackageValues(docs),
@@ -2750,6 +2785,16 @@ ${new Date().toLocaleDateString('zh-CN')}`,
         { id: 'board_notice', name: '会议通知' },
       ];
     }
+    if (category === 'supervisor') {
+      return [
+        { id: 'supervisor_notice', name: '会议通知及回执' },
+        { id: 'supervisor_signin', name: '签到表' },
+        { id: 'supervisor_voting', name: '表决票' },
+        { id: 'supervisor_resolution', name: '会议决议' },
+        { id: 'supervisor_minutes', name: '会议记录' },
+        { id: 'supervisor_proposal', name: '议案' },
+      ];
+    }
     return [];
   };
 
@@ -2773,6 +2818,8 @@ ${new Date().toLocaleDateString('zh-CN')}`,
       setImportDocType('agenda'); // 股东会默认选择大会议程
     } else if (category === 'board') {
       setImportDocType('board_notice'); // 董事会默认选择会议通知
+    } else if (category === 'supervisor') {
+      setImportDocType('supervisor_notice');
     } else {
       setImportDocType(''); // 其他会议类型清空文书类型
     }
@@ -3471,9 +3518,44 @@ ${email.body}`;
               </div>
             </div>
             <div className="flex-1 overflow-auto p-6 bg-mck-bg/30">
-              <pre className="whitespace-pre-wrap font-serif text-base leading-loose text-mck-navy/80 bg-white p-6 rounded-lg border border-mck-border">
-                {previewDoc.content}
-              </pre>
+              {previewDoc.type === 'voting' ? (() => {
+                const data = previewDoc.formData as VotingFormData;
+                return (
+                  <div className="mx-auto max-w-[780px] rounded-lg border border-slate-200 bg-white px-12 py-10 font-serif text-slate-800 shadow-sm">
+                    <h2 className="text-center text-2xl font-bold text-slate-900">{previewDoc.meetingTitle}</h2>
+                    <h3 className="mt-2 text-center text-xl font-bold tracking-[0.35em] text-cyan-800">表 决 票</h3>
+                    <table className="mt-8 w-full border-collapse text-sm">
+                      <tbody>
+                        <tr>
+                          <th className="border border-slate-300 bg-cyan-50 p-3">会议日期</th>
+                          <td className="border border-slate-300 p-3">{data.meetingDate}</td>
+                          <th className="border border-slate-300 bg-cyan-50 p-3">股东名称</th>
+                          <td className="border border-slate-300 p-3">{data.shareholderName}</td>
+                        </tr>
+                        <tr>
+                          <th className="border border-slate-300 bg-cyan-50 p-3">持股数量</th>
+                          <td className="border border-slate-300 p-3">{data.shares || '________'}</td>
+                          <th className="border border-slate-300 bg-cyan-50 p-3">持股比例</th>
+                          <td className="border border-slate-300 p-3">{data.shareholding || '________'}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                    <h4 className="mb-2 mt-8 font-bold">表决事项</h4>
+                    <p className="mb-3 text-xs text-slate-500">请在对应意见栏内打“√”。多选、不选或无法识别的，按公司章程及会议规则处理。</p>
+                    <table className="w-full border-collapse text-sm">
+                      <thead><tr className="bg-cyan-800 text-white"><th className="border border-cyan-900 p-3">序号</th><th className="border border-cyan-900 p-3">表决事项</th><th className="border border-cyan-900 p-3">同意</th><th className="border border-cyan-900 p-3">反对</th><th className="border border-cyan-900 p-3">弃权</th></tr></thead>
+                      <tbody><tr><td className="border border-slate-300 p-4 text-center">1</td><td className="border border-slate-300 p-4">{data.proposalNumber ? `${data.proposalNumber} ` : ''}{data.proposalTitle}</td><td className="border border-slate-300 p-4 text-center text-xl">□</td><td className="border border-slate-300 p-4 text-center text-xl">□</td><td className="border border-slate-300 p-4 text-center text-xl">□</td></tr></tbody>
+                    </table>
+                    <p className="mt-6 text-xs font-bold text-amber-700">重要提示：本文件生成时为空白表决票，不代表股东已经作出表决。</p>
+                    <p className="mt-10 text-right">股东或股东代表（签字/盖章）：________________</p>
+                    <p className="mt-4 text-right">日期：{data.meetingDate}</p>
+                  </div>
+                );
+              })() : (
+                <pre className="whitespace-pre-wrap font-serif text-base leading-loose text-mck-navy/80 bg-white p-6 rounded-lg border border-mck-border">
+                  {previewDoc.content}
+                </pre>
+              )}
             </div>
           </div>
         </div>
@@ -3665,13 +3747,17 @@ ${email.body}`;
                   会议标题
                 </h4>
                 <div className="relative">
-                  <input
-                    type="text"
-                    value={meetingTitle}
-                    onChange={(e) => setMeetingTitle(e.target.value)}
-                    placeholder="XX公司第一届股东会会议"
-                    className="w-full px-4 pr-10 py-3 border border-mck-border rounded-lg focus:outline-none focus:border-mck-blue text-sm"
-                  />
+                  <select
+                    value={selectedDocumentMeetingId}
+                    onChange={(e) => selectDocumentMeeting(e.target.value)}
+                    disabled={documentMeetingsLoading}
+                    className="w-full px-4 pr-10 py-3 border border-mck-border rounded-lg bg-white focus:outline-none focus:border-mck-blue text-sm"
+                  >
+                    <option value="">{documentMeetingsLoading ? '正在读取飞书会议…' : '请选择飞书股东会'}</option>
+                    {meetingsForCategory('shareholder').map((meeting) => (
+                      <option key={meeting.id} value={meeting.id}>{meeting.date ? `${meeting.date} · ` : ''}{meeting.title}</option>
+                    ))}
+                  </select>
                   {meetingHistory.length > 0 && (
                     <>
                       <button
@@ -3760,13 +3846,17 @@ ${email.body}`;
                   会议标题
                 </h4>
                 <div className="relative">
-                  <input
-                    type="text"
-                    value={meetingTitle}
-                    onChange={(e) => setMeetingTitle(e.target.value)}
-                    placeholder="XX公司第一届董事会第X次会议"
-                    className="w-full px-4 pr-10 py-3 border border-mck-border rounded-lg focus:outline-none focus:border-mck-blue text-sm"
-                  />
+                  <select
+                    value={selectedDocumentMeetingId}
+                    onChange={(e) => selectDocumentMeeting(e.target.value)}
+                    disabled={documentMeetingsLoading}
+                    className="w-full px-4 pr-10 py-3 border border-mck-border rounded-lg bg-white focus:outline-none focus:border-mck-blue text-sm"
+                  >
+                    <option value="">{documentMeetingsLoading ? '正在读取飞书会议…' : '请选择飞书董事会'}</option>
+                    {meetingsForCategory('board').map((meeting) => (
+                      <option key={meeting.id} value={meeting.id}>{meeting.date ? `${meeting.date} · ` : ''}{meeting.title}</option>
+                    ))}
+                  </select>
                   {meetingHistory.length > 0 && (
                     <>
                       <button
@@ -3854,13 +3944,17 @@ ${email.body}`;
                 <h4 className="text-xs font-bold uppercase tracking-widest text-mck-navy/60 mb-3">
                   会议标题
                 </h4>
-                <input
-                  type="text"
-                  value={meetingTitle}
-                  onChange={(e) => setMeetingTitle(e.target.value)}
-                  placeholder="XX公司第一届监事会第X次会议"
-                  className="w-full px-4 py-3 border border-mck-border rounded-lg focus:outline-none focus:border-mck-blue text-sm"
-                />
+                <select
+                  value={selectedDocumentMeetingId}
+                  onChange={(e) => selectDocumentMeeting(e.target.value)}
+                  disabled={documentMeetingsLoading}
+                  className="w-full px-4 py-3 border border-mck-border rounded-lg bg-white focus:outline-none focus:border-mck-blue text-sm"
+                >
+                  <option value="">{documentMeetingsLoading ? '正在读取飞书会议…' : '请选择飞书监事会'}</option>
+                  {meetingsForCategory('supervisor').map((meeting) => (
+                    <option key={meeting.id} value={meeting.id}>{meeting.date ? `${meeting.date} · ` : ''}{meeting.title}</option>
+                  ))}
+                </select>
               </div>
 
               <div>

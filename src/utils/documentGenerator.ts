@@ -1,5 +1,19 @@
-import { Document, Packer, Paragraph, Table, TableRow, TableCell, TextRun, AlignmentType, BorderStyle, WidthType, HeadingLevel } from 'docx';
-import { VotingFormData, VotingStatsFormData, AgendaFormData, MinutesFormData, NoticeFormData, ResolutionFormData, SigninFormData, ProxyFormData, ProposalFormData } from '@/components/DocumentCenter';
+import {
+  AlignmentType,
+  BorderStyle,
+  Document,
+  Packer,
+  Paragraph,
+  ShadingType,
+  Table,
+  TableCell,
+  TableLayoutType,
+  TableRow,
+  TextRun,
+  VerticalAlign,
+  WidthType,
+} from 'docx';
+import type { VotingFormData, VotingStatsFormData, AgendaFormData, MinutesFormData, NoticeFormData, ResolutionFormData, SigninFormData, ProxyFormData, ProposalFormData } from '@/components/DocumentCenter';
 
 // 读取XML文件
 const xmlFiles: Record<string, string> = {
@@ -421,12 +435,183 @@ const formatDateFull = (dateStr: string): string => {
   return `${date.getFullYear()}年${String(date.getMonth() + 1).padStart(2, '0')}月${String(date.getDate()).padStart(2, '0')}日`;
 };
 
+const FORM_INK = '1F2937';
+const FORM_ACCENT = '0B6477';
+const FORM_FILL = 'EAF4F6';
+const FORM_BORDER = '94A3B8';
+const FORM_WIDTH = 9360;
+
+const formRun = (text: string, options: { bold?: boolean; size?: number; color?: string } = {}) =>
+  new TextRun({
+    text,
+    bold: options.bold,
+    size: options.size || 24,
+    color: options.color || FORM_INK,
+    font: {
+      ascii: 'Hiragino Sans GB',
+      hAnsi: 'Hiragino Sans GB',
+      eastAsia: 'Hiragino Sans GB',
+      cs: 'Hiragino Sans GB',
+    },
+  });
+
+const formCell = (
+  text: string,
+  width: number,
+  options: { bold?: boolean; fill?: string; color?: string; align?: (typeof AlignmentType)[keyof typeof AlignmentType] } = {},
+) => new TableCell({
+  width: { size: width, type: WidthType.DXA },
+  verticalAlign: VerticalAlign.CENTER,
+  margins: { top: 140, bottom: 140, left: 150, right: 150 },
+  shading: options.fill ? { type: ShadingType.CLEAR, fill: options.fill } : undefined,
+  borders: {
+    top: { style: BorderStyle.SINGLE, size: 6, color: FORM_BORDER },
+    bottom: { style: BorderStyle.SINGLE, size: 6, color: FORM_BORDER },
+    left: { style: BorderStyle.SINGLE, size: 6, color: FORM_BORDER },
+    right: { style: BorderStyle.SINGLE, size: 6, color: FORM_BORDER },
+  },
+  children: [new Paragraph({
+    alignment: options.align || AlignmentType.CENTER,
+    spacing: { before: 0, after: 0, line: 300 },
+    children: [formRun(text || ' ', { bold: options.bold, color: options.color })],
+  })],
+});
+
+export const generateVotingWordDocument = async (meetingTitle: string, formData: any): Promise<Blob> => {
+  const meetingDate = formatDateFull(formData?.meetingDate);
+  const shareholderName = formData?.shareholderName || '________________';
+  const shares = formData?.shares || '________________';
+  const shareholding = formData?.shareholding
+    ? `${formData.shareholding}${String(formData.shareholding).includes('%') ? '' : '%'}`
+    : '________________';
+  const proposalTitle = formData?.proposalTitle || '________________';
+  const proposalNumber = formData?.proposalNumber ? `${formData.proposalNumber}  ` : '';
+
+  const infoTable = new Table({
+    width: { size: FORM_WIDTH, type: WidthType.DXA },
+    layout: TableLayoutType.FIXED,
+    columnWidths: [1500, 3180, 1500, 3180],
+    rows: [
+      new TableRow({
+        children: [
+          formCell('会议日期', 1500, { bold: true, fill: FORM_FILL }),
+          formCell(meetingDate, 3180, { align: AlignmentType.LEFT }),
+          formCell('股东名称', 1500, { bold: true, fill: FORM_FILL }),
+          formCell(shareholderName, 3180, { align: AlignmentType.LEFT }),
+        ],
+      }),
+      new TableRow({
+        children: [
+          formCell('持股数量', 1500, { bold: true, fill: FORM_FILL }),
+          formCell(shares, 3180, { align: AlignmentType.LEFT }),
+          formCell('持股比例', 1500, { bold: true, fill: FORM_FILL }),
+          formCell(shareholding, 3180, { align: AlignmentType.LEFT }),
+        ],
+      }),
+    ],
+  });
+
+  const voteTable = new Table({
+    width: { size: FORM_WIDTH, type: WidthType.DXA },
+    layout: TableLayoutType.FIXED,
+    columnWidths: [720, 6120, 840, 840, 840],
+    rows: [
+      new TableRow({
+        tableHeader: true,
+        children: [
+          formCell('序号', 720, { bold: true, fill: FORM_ACCENT, color: 'FFFFFF' }),
+          formCell('表决事项', 6120, { bold: true, fill: FORM_ACCENT, color: 'FFFFFF' }),
+          formCell('同意', 840, { bold: true, fill: FORM_ACCENT, color: 'FFFFFF' }),
+          formCell('反对', 840, { bold: true, fill: FORM_ACCENT, color: 'FFFFFF' }),
+          formCell('弃权', 840, { bold: true, fill: FORM_ACCENT, color: 'FFFFFF' }),
+        ],
+      }),
+      new TableRow({
+        children: [
+          formCell('1', 720),
+          formCell(`${proposalNumber}${proposalTitle}`, 6120, { align: AlignmentType.LEFT }),
+          formCell('□', 840),
+          formCell('□', 840),
+          formCell('□', 840),
+        ],
+      }),
+    ],
+  });
+
+  const doc = new Document({
+    styles: {
+      default: {
+        document: {
+          run: {
+            font: {
+              ascii: 'Hiragino Sans GB',
+              hAnsi: 'Hiragino Sans GB',
+              eastAsia: 'Hiragino Sans GB',
+              cs: 'Hiragino Sans GB',
+            },
+            size: 24,
+            color: FORM_INK,
+          },
+          paragraph: { spacing: { after: 120, line: 360 } },
+        },
+      },
+    },
+    sections: [{
+      properties: {
+        page: {
+          size: { width: 11906, height: 16838 },
+          margin: { top: 1134, right: 1276, bottom: 1134, left: 1276 },
+        },
+      },
+      children: [
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          spacing: { before: 0, after: 140 },
+          children: [formRun(meetingTitle, { bold: true, size: 36, color: '0F2742' })],
+        }),
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          spacing: { before: 0, after: 420 },
+          children: [formRun('表 决 票', { bold: true, size: 32, color: FORM_ACCENT })],
+        }),
+        infoTable,
+        new Paragraph({
+          spacing: { before: 320, after: 160 },
+          children: [formRun('表决事项', { bold: true, size: 26, color: '0F2742' })],
+        }),
+        new Paragraph({
+          spacing: { after: 180, line: 300 },
+          children: [formRun('填写说明：请在对应意见栏内打“√”。多选、不选或无法识别的，按公司章程及会议规则处理。', { size: 21, color: '64748B' })],
+        }),
+        voteTable,
+        new Paragraph({
+          spacing: { before: 360, after: 160 },
+          children: [formRun('重要提示：本文件生成时为空白表决票，不代表股东已经作出表决。', { bold: true, size: 21, color: '9A6700' })],
+        }),
+        new Paragraph({
+          alignment: AlignmentType.RIGHT,
+          spacing: { before: 520, after: 260 },
+          children: [formRun('股东或股东代表（签字/盖章）：________________________')],
+        }),
+        new Paragraph({
+          alignment: AlignmentType.RIGHT,
+          children: [formRun(`日期：${meetingDate}`)],
+        }),
+      ],
+    }],
+  });
+  return Packer.toBlob(doc);
+};
+
 // 生成Word文档
 export const generateWordDocument = async (
   type: string,
   meetingTitle: string,
   formData: any
 ): Promise<Blob> => {
+  if (type === 'voting') {
+    return generateVotingWordDocument(meetingTitle, formData);
+  }
   // 构建XML路径
   const xmlPath = `${process.env.PUBLIC_URL || ''}/文书xml/会议类/${getXmlFileName(type)}`;
   

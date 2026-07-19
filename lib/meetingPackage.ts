@@ -8,6 +8,11 @@ export type MeetingPackageInput = {
   meetingTitle: string;
   meetingType: MeetingPackageType;
   values?: Record<string, string | number | boolean | null | undefined>;
+  proposals?: Array<{
+    number?: string;
+    title: string;
+    content?: string;
+  }>;
 };
 
 const TEMPLATE_FOLDERS: Record<MeetingPackageType, string> = {
@@ -79,7 +84,42 @@ function replaceRunPlaceholders(xml: string, values: Record<string, string>) {
   });
 }
 
-async function renderDocxTemplate(template: Buffer, values: Record<string, string>) {
+function replaceProposalLoops(
+  xml: string,
+  proposals: NonNullable<MeetingPackageInput["proposals"]>,
+) {
+  const loopPattern = /<w:p\b(?:(?!<\/w:p>)[\s\S])*?\{\{#议案列表\}\}(?:(?!<\/w:p>)[\s\S])*?<\/w:p>([\s\S]*?)<w:p\b(?:(?!<\/w:p>)[\s\S])*?\{\{\/议案列表\}\}(?:(?!<\/w:p>)[\s\S])*?<\/w:p>/g;
+  return xml.replace(loopPattern, (_match, body: string) => {
+    const items = proposals.length ? proposals : [{ number: "", title: "（待填写议案）", content: "" }];
+    const fillProposal = (template: string, proposal: typeof items[number], index: number) => template
+      .split("{{序号}}").join(String(index + 1))
+      .split("{{议案表.议案编号}}").join(escapeXml(proposal.number || String(index + 1)))
+      .split("{{议案表.议案标题}}").join(escapeXml(proposal.title))
+      .split("{{议案表.议案正文}}").join(escapeXml(proposal.content || ""));
+
+    // 表决票模板用一张表表示多个议案：保留表头，只复制数据行。
+    const tableMatch = body.match(/<w:tbl>[\s\S]*?<\/w:tbl>/);
+    if (tableMatch) {
+      const rows = tableMatch[0].match(/<w:tr\b[\s\S]*?<\/w:tr>/g) || [];
+      if (rows.length >= 2) {
+        const dataRows = rows.slice(1);
+        const repeatedRows = items.map((proposal, index) =>
+          fillProposal(dataRows[0], proposal, index)
+        ).join("");
+        const nextTable = tableMatch[0].replace(dataRows.join(""), repeatedRows);
+        return body.replace(tableMatch[0], nextTable);
+      }
+    }
+
+    return items.map((proposal, index) => fillProposal(body, proposal, index)).join("");
+  });
+}
+
+async function renderDocxTemplate(
+  template: Buffer,
+  values: Record<string, string>,
+  proposals: NonNullable<MeetingPackageInput["proposals"]>,
+) {
   const docxZip = await JSZip.loadAsync(template);
   const xmlFiles = Object.keys(docxZip.files).filter(
     (name) => /^word\/(document|header\d+|footer\d+)\.xml$/.test(name),
@@ -90,7 +130,8 @@ async function renderDocxTemplate(template: Buffer, values: Record<string, strin
       const entry = docxZip.file(name);
       if (!entry) return;
       const xml = await entry.async("string");
-      docxZip.file(name, replaceRunPlaceholders(xml, values));
+      const expanded = replaceProposalLoops(xml, proposals);
+      docxZip.file(name, replaceRunPlaceholders(expanded, values));
     }),
   );
 
@@ -121,6 +162,7 @@ export async function createMeetingPackage(input: MeetingPackageInput) {
   }
 
   const values = normalizedValues(input);
+  const proposals = input.proposals || [];
   const folderName = safeFileName(input.meetingTitle);
   const packageZip = new JSZip();
   const meetingFolder = packageZip.folder(folderName);
@@ -128,7 +170,7 @@ export async function createMeetingPackage(input: MeetingPackageInput) {
 
   for (const templateName of templateNames) {
     const source = await fs.readFile(path.join(templateFolder, templateName));
-    const rendered = await renderDocxTemplate(source, values);
+    const rendered = await renderDocxTemplate(source, values, proposals);
     const cleanTemplateName = templateName.replace(/^\d+-/, "");
     meetingFolder.file(`${folderName}_${cleanTemplateName}`, rendered);
   }
@@ -146,4 +188,3 @@ export async function createMeetingPackage(input: MeetingPackageInput) {
     documentNames: templateNames.map((name) => name.replace(/^\d+-/, "")),
   };
 }
-

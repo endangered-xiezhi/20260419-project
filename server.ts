@@ -279,8 +279,10 @@ async function startServer() {
       };
 
       let feishuMeeting: Awaited<ReturnType<typeof getFeishuMeeting>> | null = null;
+      let votingContext: Awaited<ReturnType<typeof getFeishuVotingContext>> | null = null;
       if (meetingId?.startsWith("rec")) {
         feishuMeeting = await getFeishuMeeting(meetingId);
+        votingContext = await getFeishuVotingContext(meetingId);
       }
 
       const effectiveTitle = meetingTitle?.trim() || feishuMeeting?.title;
@@ -335,12 +337,19 @@ async function startServer() {
         if (feishuMeeting.actualAttendance !== undefined) {
           feishuValues["人员汇总.实到人数"] = feishuMeeting.actualAttendance;
         }
+        const firstProposal = votingContext?.proposals[0];
+        if (firstProposal) {
+          feishuValues["议案表.议案编号"] = firstProposal.number;
+          feishuValues["议案表.议案标题"] = firstProposal.title;
+          feishuValues["议案表.议案正文"] = firstProposal.content;
+        }
       }
 
       const meetingPackage = await createMeetingPackage({
         meetingTitle: effectiveTitle,
         meetingType: effectiveType,
         values: { ...feishuValues, ...(values || {}) },
+        proposals: votingContext?.proposals || [],
       });
       const packageId = crypto.randomUUID();
       await fs.writeFile(join(meetingPackagesDir, `${packageId}.zip`), meetingPackage.buffer);
