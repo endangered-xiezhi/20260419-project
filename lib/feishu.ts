@@ -304,6 +304,14 @@ function readableValue(value: unknown): string {
   return "";
 }
 
+function firstReadableField(fields: Record<string, unknown>, names: string[]) {
+  for (const name of names) {
+    const value = readableValue(fields[name]).trim();
+    if (value) return value;
+  }
+  return "";
+}
+
 function relationRecordIds(value: unknown) {
   if (!Array.isArray(value)) return [];
   return value.flatMap((item) => {
@@ -358,6 +366,7 @@ export type FeishuMeetingInput = {
   contactPhone?: string;
   contactEmail?: string;
   minutesContent?: string;
+  minutesUrl?: string;
   status?: string;
   participantNames?: string[];
 };
@@ -380,6 +389,8 @@ export type FeishuMeeting = {
   contactEmail: string;
   status: string;
   participantNames: string[];
+  companyName: string;
+  entityType: string;
   pendingFields: string[];
   fields: Record<string, unknown>;
 };
@@ -508,9 +519,62 @@ function normalizeMeeting(
     contactEmail: readableValue(record.fields["会务邮箱"]),
     status: readableValue(record.fields["状态"]) || "筹备中",
     participantNames: relationDisplay.length ? relationDisplay : directDisplay,
+    companyName: normalizeCompanyName(
+      firstReadableField(record.fields, ["公司名称", "主体名称", "企业名称"]),
+      firstReadableField(record.fields, ["公司类型", "主体类型", "企业类型"]),
+    ),
+    entityType: firstReadableField(record.fields, ["公司类型", "主体类型", "企业类型"]),
     pendingFields: [],
     fields: record.fields,
   };
+}
+
+export function normalizeCompanyName(rawName: string, entityType = "") {
+  const name = rawName.trim().replace(/[（(]演示[）)]$/, "").trim();
+  if (!name) {
+    if (!entityType.trim()) return "";
+    return entityType.includes("股份") ? "XXX股份有限公司" : "XXX有限公司";
+  }
+  if (/(股份有限公司|有限责任公司|有限公司)$/.test(name)) return name;
+  const isJointStock = entityType.includes("股份") || /股份$/.test(name);
+  const stem = name.replace(/股份$/, "").replace(/(?:有限责任)?公司$/, "").trim();
+  return `${stem || "XXX"}${isJointStock ? "股份有限公司" : "有限公司"}`;
+}
+
+async function getFeishuCompanyProfile(token: string, appToken: string) {
+  const fallbackName = process.env.FEISHU_COMPANY_NAME?.trim() || "";
+  try {
+    const tableId = await resolveTableId(
+      token,
+      appToken,
+      "FEISHU_COMPANY_TABLE_ID",
+      ["公司主体表", "公司表", "主体表"],
+    );
+    const records = await listRecordsByTableId(token, appToken, tableId);
+    const record = records[0];
+    if (!record) throw new Error("公司主体表为空");
+    const entityType = firstReadableField(record.fields, [
+      "公司类型",
+      "主体类型",
+      "企业类型",
+      "公司性质",
+    ]);
+    const rawName = firstReadableField(record.fields, [
+      "公司名称",
+      "主体名称",
+      "企业名称",
+      "名称",
+    ]);
+    return {
+      companyName: normalizeCompanyName(rawName || fallbackName, entityType),
+      entityType,
+    };
+  } catch {
+    return {
+      companyName: normalizeCompanyName(fallbackName),
+      entityType: "",
+    };
+  }
 }
 
 async function meetingFields(
@@ -566,6 +630,7 @@ async function meetingFields(
   put("会务联系电话", input.contactPhone, true);
   put("会务邮箱", input.contactEmail, true);
   put("会议纪要正文", input.minutesContent, true);
+  put("妙记链接", input.minutesUrl, true);
 
   const namesToRecordIds = async (names: string[]) => {
     const directory = await personnelDirectory(token, appToken);
@@ -605,7 +670,13 @@ export async function listFeishuMeetings() {
   } catch {
     // 人员表尚未完成时，会议核心字段仍然可以正常读取。
   }
-  return records.map((record) => normalizeMeeting(record, namesById));
+  const company = await getFeishuCompanyProfile(token, appToken);
+  return records.map((record) => {
+    const meeting = normalizeMeeting(record, namesById);
+    meeting.companyName = meeting.companyName || company.companyName;
+    meeting.entityType = meeting.entityType || company.entityType;
+    return meeting;
+  });
 }
 
 export async function getFeishuMeeting(recordId: string) {
@@ -622,7 +693,11 @@ export async function getFeishuMeeting(recordId: string) {
   } catch {
     // 同上，人员关联失败不阻断会议基础信息。
   }
-  return normalizeMeeting(result.data.record, namesById);
+  const meeting = normalizeMeeting(result.data.record, namesById);
+  const company = await getFeishuCompanyProfile(token, appToken);
+  meeting.companyName = meeting.companyName || company.companyName;
+  meeting.entityType = meeting.entityType || company.entityType;
+  return meeting;
 }
 
 export async function createFeishuMeeting(input: FeishuMeetingInput) {
@@ -662,6 +737,147 @@ export async function deleteFeishuMeeting(recordId: string) {
     token,
     { method: "DELETE" },
   );
+}
+
+export type FeishuMeetingSourceBundle = {
+  meeting: FeishuMeeting;
+  minutes: {
+    source: "feishu_minutes" | "meeting_table" | "missing";
+    url: string;
+    token: string;
+    title: string;
+    duration?: number;
+    ownerId: string;
+    content: string;
+    metadataStatus: "loaded" | "not_configured" | "unavailable";
+    metadataMessage?: string;
+  };
+  proposals: FeishuVotingProposal[];
+  missingFields: string[];
+};
+
+function extractMinuteToken(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  const urlMatch = trimmed.match(/\/minutes\/obcn([A-Za-z0-9_-]{20,})/i);
+  if (urlMatch) return `obcn${urlMatch[1]}`;
+  const plainMatch = trimmed.match(/\b(obcn[A-Za-z0-9_-]{20,})\b/i);
+  return plainMatch?.[1] || (/^[A-Za-z0-9_-]{24}$/.test(trimmed) ? trimmed : "");
+}
+
+export async function getFeishuMeetingSourceBundle(
+  meetingId: string,
+): Promise<FeishuMeetingSourceBundle> {
+  const meeting = await getFeishuMeeting(meetingId);
+  const { token } = await getBitableContext();
+  const minutesUrl = firstReadableField(meeting.fields, [
+    "妙记链接",
+    "飞书妙记链接",
+    "妙记 URL",
+    "妙记",
+    "妙记Token",
+    "妙记 Token",
+  ]);
+  const minuteToken = extractMinuteToken(minutesUrl);
+  const minutesContent = firstReadableField(meeting.fields, [
+    "会议纪要正文",
+    "妙记逐字稿",
+    "妙记纪要",
+    "逐字稿",
+    "会议纪要",
+  ]);
+  const minutes: FeishuMeetingSourceBundle["minutes"] = {
+    source: minuteToken ? "feishu_minutes" : minutesContent ? "meeting_table" : "missing",
+    url: minutesUrl,
+    token: minuteToken,
+    title: meeting.title,
+    ownerId: "",
+    content: minutesContent,
+    metadataStatus: minuteToken ? "unavailable" : "not_configured",
+  };
+
+  if (minuteToken) {
+    try {
+      const result = await feishuRequest<{
+        data?: {
+          minute?: {
+            title?: string;
+            duration?: number;
+            owner_id?: string;
+            url?: string;
+          };
+        };
+      }>(`/minutes/v1/minutes/${encodeURIComponent(minuteToken)}`, token);
+      const minute = result.data?.minute;
+      minutes.title = minute?.title || meeting.title;
+      minutes.duration = minute?.duration;
+      minutes.ownerId = minute?.owner_id || "";
+      minutes.url = minute?.url || minutesUrl;
+      minutes.metadataStatus = "loaded";
+    } catch (error) {
+      minutes.metadataMessage = error instanceof Error ? error.message : "妙记信息读取失败";
+    }
+  }
+
+  let proposals: FeishuVotingProposal[] = [];
+  try {
+    proposals = (await getFeishuVotingContext(meetingId)).proposals;
+  } catch {
+    // 议案表尚未配置时，会议纪要仍可独立使用。
+  }
+
+  const missingFields: string[] = [];
+  if (!minutesUrl) missingFields.push("妙记链接");
+  if (!minutesContent) missingFields.push("会议纪要正文或妙记逐字稿");
+  if (!proposals.length) missingFields.push("关联议案");
+
+  return { meeting, minutes, proposals, missingFields };
+}
+
+export type GeneratedProposalInput = {
+  title: string;
+  content: string;
+  legalBasis?: string;
+  recommendation?: string;
+  type?: string;
+};
+
+export async function createFeishuProposals(
+  meetingId: string,
+  proposals: GeneratedProposalInput[],
+) {
+  if (!meetingId || !proposals.length) throw new Error("会议和议案内容不能为空");
+  const { token, appToken } = await getBitableContext();
+  const tableId = await resolveTableId(token, appToken, "FEISHU_PROPOSAL_TABLE_ID", ["议案表"]);
+  const availableFields = await getTableFieldNames(token, appToken, tableId);
+  const records: Array<{ recordId: string; title: string }> = [];
+  const batchCode = String(Date.now()).slice(-6);
+
+  for (let index = 0; index < proposals.length; index += 1) {
+    const proposal = proposals[index];
+    const fields: Record<string, unknown> = {};
+    const putAny = (names: string[], value: unknown) => {
+      const name = names.find((candidate) => availableFields.has(candidate));
+      if (name && value !== undefined && value !== "") fields[name] = value;
+    };
+    putAny(["议案标题", "议案名称", "名称"], proposal.title);
+    putAny(["议案编号"], `YA-${new Date().getFullYear()}-${batchCode}-${String(index + 1).padStart(2, "0")}`);
+    putAny(["关联会议"], [meetingId]);
+    putAny(["议案正文", "议案内容"], proposal.content);
+    putAny(["适用规则", "法律依据"], proposal.legalBasis);
+    putAny(["审查建议", "决策建议"], proposal.recommendation);
+    putAny(["议案类型"], proposal.type);
+    putAny(["审议状态", "状态"], "待审议");
+    const result = await feishuRequest<FeishuRecordResponse>(
+      `/bitable/v1/apps/${encodeURIComponent(appToken)}/tables/${encodeURIComponent(tableId)}/records`,
+      token,
+      { method: "POST", body: JSON.stringify({ fields }) },
+    );
+    if (result.data?.record) {
+      records.push({ recordId: result.data.record.record_id, title: proposal.title });
+    }
+  }
+  return records;
 }
 
 export type FeishuVotingShareholder = {

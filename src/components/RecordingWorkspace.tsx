@@ -1,6 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
-import { FileText, Upload, Loader2, Edit3, Save, Download, Mic, Clock, Trash2, FileAudio, Type, AlignLeft, AlignCenter, AlignRight, AlignJustify, X, Maximize2, UploadCloud, Check, ChevronDown } from "lucide-react";
+import { FileText, Upload, Loader2, Edit3, Save, Download, Mic, Clock, Trash2, FileAudio, Type, AlignLeft, AlignCenter, AlignRight, AlignJustify, X, Maximize2, UploadCloud, Check, ChevronDown, RefreshCw, Sparkles, ExternalLink, Database, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  generateMeetingProposals,
+  getMeetingSourceBundle,
+  updateMeetingInFeishu,
+  type FeishuMeetingSourceBundle,
+} from "@/services/feishuMeetings";
+import { fallbackCompanyName } from "@/utils/companyName";
 
 // 导入会议纪要记录接口
 export interface ImportedMinutesRecord {
@@ -68,7 +75,7 @@ const fontOptions = [
   { value: "'FangSong', '仿宋', serif", label: "仿宋" },
 ];
 
-export const RecordingWorkspace: React.FC<RecordingWorkspaceProps> = ({ meetingId, onAnalysisComplete }) => {
+export const RecordingWorkspace: React.FC<RecordingWorkspaceProps> = ({ meetingId, onAnalysisComplete, onNavigateToDocuments }) => {
   const [records, setRecords] = useState<MeetingMinutesRecord[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
     return saved ? JSON.parse(saved) : [];
@@ -82,6 +89,10 @@ export const RecordingWorkspace: React.FC<RecordingWorkspaceProps> = ({ meetingI
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [expandedPanel, setExpandedPanel] = useState<"editor" | "preview" | null>(null);
+  const [sourceBundle, setSourceBundle] = useState<FeishuMeetingSourceBundle | null>(null);
+  const [isLoadingFeishu, setIsLoadingFeishu] = useState(false);
+  const [isGeneratingProposals, setIsGeneratingProposals] = useState(false);
+  const [sourceMessage, setSourceMessage] = useState("");
   
   const [docFormat, setDocFormat] = useState<DocumentFormat>({
     fontSize: 14,
@@ -147,6 +158,53 @@ export const RecordingWorkspace: React.FC<RecordingWorkspaceProps> = ({ meetingI
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
   }, [records]);
+
+  const loadFeishuSource = useCallback(async () => {
+    if (!meetingId) {
+      setSourceBundle(null);
+      return;
+    }
+    setIsLoadingFeishu(true);
+    setSourceMessage("");
+    try {
+      const result = await getMeetingSourceBundle(meetingId);
+      const bundle = result.bundle;
+      setSourceBundle(bundle);
+      setMeetingTitle(bundle.minutes.title || `${bundle.meeting.title}会议纪要`);
+      if (bundle.minutes.content) {
+        setMeetingContent(bundle.minutes.content);
+      } else {
+        const proposalText = bundle.proposals.length
+          ? `\n审议议案：\n${bundle.proposals.map((item, index) => `${index + 1}. ${item.title}`).join("\n")}`
+          : "";
+        setMeetingContent(
+          `会议名称：${bundle.meeting.title}\n会议类型：${bundle.meeting.type}\n会议日期：${bundle.meeting.date}\n会议地点：${bundle.meeting.location || "待补充"}\n参会人员：${bundle.meeting.participantNames?.join("、") || "待补充"}${proposalText}\n\n会议过程及发言内容：\n`,
+        );
+        setIsEditing(true);
+      }
+      const loadedRecord: MeetingMinutesRecord = {
+        id: `feishu-${meetingId}`,
+        title: bundle.minutes.title || `${bundle.meeting.title}会议纪要`,
+        date: bundle.meeting.date,
+        content: bundle.minutes.content,
+        hasAudio: Boolean(bundle.minutes.token),
+      };
+      setCurrentRecord(loadedRecord);
+      setSourceMessage(
+        bundle.minutes.metadataStatus === "loaded"
+          ? "已读取飞书会议、妙记信息和关联议案"
+          : "已读取飞书会议；缺少的内容已标出，可直接补充",
+      );
+    } catch (error) {
+      setSourceMessage(error instanceof Error ? error.message : "飞书会议资料读取失败");
+    } finally {
+      setIsLoadingFeishu(false);
+    }
+  }, [meetingId]);
+
+  useEffect(() => {
+    void loadFeishuSource();
+  }, [loadFeishuSource]);
 
   // 初始化导入历史列表
   useEffect(() => {
@@ -259,8 +317,24 @@ export const RecordingWorkspace: React.FC<RecordingWorkspaceProps> = ({ meetingI
     }
   };
 
-  const handleSaveContent = () => {
+  const handleSaveContent = async () => {
     setIsEditing(false);
+    if (meetingId) {
+      try {
+        const result = await updateMeetingInFeishu(meetingId, {
+          minutesContent: meetingContent,
+          minutesUrl: sourceBundle?.minutes.url || undefined,
+        });
+        const missing = result.meeting.pendingFields || [];
+        setSourceMessage(
+          missing.includes("会议纪要正文")
+            ? "飞书会议表还没有“会议纪要正文”字段，本次只保存在浏览器中"
+            : "会议纪要已写回飞书会议表",
+        );
+      } catch (error) {
+        setSourceMessage(error instanceof Error ? error.message : "会议纪要写回飞书失败");
+      }
+    }
     if (currentRecord) {
       const updatedRecord = { ...currentRecord, content: meetingContent, title: meetingTitle || currentRecord.title };
       setCurrentRecord(updatedRecord);
@@ -284,6 +358,23 @@ export const RecordingWorkspace: React.FC<RecordingWorkspaceProps> = ({ meetingI
       };
       setRecords(prev => [newRecord, ...prev]);
       setCurrentRecord(newRecord);
+    }
+  };
+
+  const handleGenerateProposals = async () => {
+    if (!meetingId) return;
+    setIsGeneratingProposals(true);
+    setSourceMessage("");
+    try {
+      const result = await generateMeetingProposals(meetingId, 3);
+      setSourceMessage(
+        `已按${sourceBundle?.meeting.type || "会议类型"}生成 ${result.created.length} 项议案并写入飞书“议案表”（${result.mode === "ai" ? "AI" : "演示"}模式）`,
+      );
+      await loadFeishuSource();
+    } catch (error) {
+      setSourceMessage(error instanceof Error ? error.message : "议案生成失败");
+    } finally {
+      setIsGeneratingProposals(false);
     }
   };
 
@@ -591,7 +682,9 @@ export const RecordingWorkspace: React.FC<RecordingWorkspaceProps> = ({ meetingI
             }}
           >
             <div className="border-b border-gray-300 pb-4 mb-6">
-              <p className="text-xs text-gray-400 text-center">智理科技股份有限公司</p>
+              <p className="text-xs text-gray-400 text-center">
+                {fallbackCompanyName(sourceBundle?.meeting.companyName, sourceBundle?.meeting.entityType)}
+              </p>
             </div>
 
             <h1 className="font-bold text-center mb-8 text-black" style={{ fontSize: `${docFormat.titleFontSize}pt`, fontFamily: "SimHei, '黑体', sans-serif", lineHeight: 1.4 }}>
@@ -639,6 +732,60 @@ export const RecordingWorkspace: React.FC<RecordingWorkspaceProps> = ({ meetingI
 
   return (
     <div className="space-y-4">
+      <section className="rounded-2xl border border-cyan-200 bg-gradient-to-r from-cyan-50 via-white to-blue-50 p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-700 text-white shadow-lg shadow-cyan-700/20">
+              <Database size={18} />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-slate-900">飞书会议资料中枢</h3>
+              <p className="mt-0.5 text-xs text-slate-500">
+                {meetingId ? sourceMessage || "自动读取会议表、妙记和关联议案" : "请先从会议列表进入一场会议"}
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <a href="/demo/三会治理全流程演示样例.docx" download className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-white px-3 py-2 text-xs font-bold text-blue-800 hover:bg-blue-50">
+              <Download size={13} />完整会议样例
+            </a>
+            <a href="/demo/会议合规AI审查报告样例.docx" download className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-white px-3 py-2 text-xs font-bold text-blue-800 hover:bg-blue-50">
+              <ShieldCheck size={13} />审查报告样例
+            </a>
+            {sourceBundle?.minutes.url && (
+              <a href={sourceBundle.minutes.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-xl border border-cyan-200 bg-white px-3 py-2 text-xs font-bold text-cyan-800 hover:bg-cyan-50">
+                <ExternalLink size={13} />打开飞书妙记
+              </a>
+            )}
+            <button onClick={() => void loadFeishuSource()} disabled={!meetingId || isLoadingFeishu} className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 disabled:opacity-40">
+              <RefreshCw size={13} className={isLoadingFeishu ? "animate-spin" : ""} />重新读取
+            </button>
+            <button onClick={handleGenerateProposals} disabled={!meetingId || isGeneratingProposals} className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 px-3 py-2 text-xs font-bold text-white shadow-lg shadow-slate-900/15 disabled:opacity-40">
+              {isGeneratingProposals ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}按类型生成议案
+            </button>
+          </div>
+        </div>
+        {sourceBundle && (
+          <div className="mt-4 grid gap-2 sm:grid-cols-4">
+            {[
+              ["公司主体", fallbackCompanyName(sourceBundle.meeting.companyName, sourceBundle.meeting.entityType)],
+              ["会议表", sourceBundle.meeting.title ? "已读取" : "待补充"],
+              ["妙记", sourceBundle.minutes.metadataStatus === "loaded" ? "已连接" : sourceBundle.minutes.content ? "已有正文" : "待关联"],
+              ["关联议案", `${sourceBundle.proposals.length} 项`],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-xl border border-white/80 bg-white/80 px-3 py-2">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{label}</p>
+                <p className="mt-1 truncate text-xs font-bold text-slate-800">{value}</p>
+              </div>
+            ))}
+          </div>
+        )}
+        {!!sourceBundle?.missingFields.length && (
+          <p className="mt-3 text-xs text-amber-700">
+            只需补充：{sourceBundle.missingFields.join("、")}。已有字段不会重复让你填写。
+          </p>
+        )}
+      </section>
       {/* 导入成功弹窗 */}
       {showImportSuccess && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center">

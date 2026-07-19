@@ -14,6 +14,7 @@ import {
   WidthType,
 } from 'docx';
 import type { VotingFormData, VotingStatsFormData, AgendaFormData, MinutesFormData, NoticeFormData, ResolutionFormData, SigninFormData, ProxyFormData, ProposalFormData } from '@/components/DocumentCenter';
+import { fallbackCompanyName } from '@/utils/companyName';
 
 // 读取XML文件
 const xmlFiles: Record<string, string> = {
@@ -48,6 +49,7 @@ export const regulationXmlFiles: Record<string, string> = {
 
 // 解析制度文件XML为格式化文本
 const parseRegulationXml = (xml: string, companyName: string): string[] => {
+  companyName = fallbackCompanyName(companyName);
   const paragraphs: string[] = [];
   
   // 移除XML声明
@@ -609,6 +611,7 @@ export const generateWordDocument = async (
   meetingTitle: string,
   formData: any
 ): Promise<Blob> => {
+  companyName = fallbackCompanyName(companyName);
   if (type === 'voting') {
     return generateVotingWordDocument(meetingTitle, formData);
   }

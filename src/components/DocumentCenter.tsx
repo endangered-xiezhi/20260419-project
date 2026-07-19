@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import { generateWordDocument, generateRegulationWord } from "@/utils/documentGenerator";
 import { downloadMeetingPackage, requestMeetingPackage, type MeetingPackageType } from "@/services/meetingPackage";
 import { getMeetingFromFeishu, listMeetingsFromFeishu, type ApiMeeting } from "@/services/feishuMeetings";
+import { fallbackCompanyName, normalizeCompanyName } from "@/utils/companyName";
 import {
   createVotingDocument,
   getVotingContext,
@@ -406,7 +407,7 @@ const generateDocumentContent = (meetingTitle: string, type: string, typeName: s
     // 董事会议案
     board_proposal: (() => {
       const data = formData as BoardProposalFormData;
-      const company = data?.companyName || '某股份有限公司';
+      const company = fallbackCompanyName(data?.companyName);
       return `${company}关于公司某某发展战略规划的议案
 
 各位董事：
@@ -425,7 +426,7 @@ ${data?.proposalDate || '某年某月某日'}
     // 董事会表决票
     board_voting: (() => {
       const data = formData as BoardVotingFormData;
-      const company = data?.companyName || '某股份有限公司';
+      const company = fallbackCompanyName(data?.companyName);
       const meetingNum = data?.meetingNumber || '第一';
       return `${company}第${meetingNum}届董事会第三次会议表决票
 
@@ -439,7 +440,7 @@ ${data?.proposalDate || '某年某月某日'}
     // 董事会会议记录
     board_minutes: (() => {
       const data = formData as BoardMinutesFormData;
-      const company = data?.companyName || '某股份有限公司';
+      const company = fallbackCompanyName(data?.companyName);
       const meetingNum = data?.meetingNumber || '第一';
       return `${company}第${meetingNum}届董事会第三次会议记录
 
@@ -460,7 +461,7 @@ ${data?.proposalDate || '某年某月某日'}
     // 董事会决议
     board_resolution: (() => {
       const data = formData as BoardResolutionFormData;
-      const company = data?.companyName || '某股份有限公司';
+      const company = fallbackCompanyName(data?.companyName);
       const meetingNum = data?.meetingNumber || '第一';
       return `${company}第${meetingNum}届董事会第三次会议决议
 
@@ -477,7 +478,7 @@ ${data?.proposalDate || '某年某月某日'}
     // 董事会签到表
     board_signin: (() => {
       const data = formData as BoardSigninFormData;
-      const company = data?.companyName || '某股份有限公司';
+      const company = fallbackCompanyName(data?.companyName);
       const meetingNum = data?.meetingNumber || '第一';
       return `${company}第${meetingNum}届董事会第三次会议签到表
 
@@ -494,7 +495,7 @@ ${data?.proposalDate || '某年某月某日'}
     // 董事会会议通知
     board_notice: (() => {
       const data = formData as BoardNoticeFormData;
-      const company = data?.companyName || '某股份有限公司';
+      const company = fallbackCompanyName(data?.companyName);
       const meetingNum = data?.meetingNumber || '第一';
       return `${company}第${meetingNum}届董事会第三次会议通知
 
@@ -1400,10 +1401,11 @@ const DocumentFormModal: React.FC<{
   template: DocumentTemplate;
   meetingTitle: string;
   meetingId?: string;
+  companyName?: string;
   onClose: () => void;
   onGenerate: (content: string, formData: any) => void | Promise<void>;
   onBatchGenerate: (items: VotingFormData[]) => void | Promise<void>;
-}> = ({ template, meetingTitle, meetingId, onClose, onGenerate, onBatchGenerate }) => {
+}> = ({ template, meetingTitle, meetingId, companyName, onClose, onGenerate, onBatchGenerate }) => {
   const [formData, setFormData] = useState<FormData>(() => {
     const today = new Date().toISOString().split('T')[0];
     switch (template.id) {
@@ -1436,19 +1438,19 @@ const DocumentFormModal: React.FC<{
       case 'proxy':
         return { principalName: '', principalId: '', agentName: '', agentId: '', proxyDate: today } as ProxyFormData;
       case 'proposal':
-        return { proposalId: '', proposalName: '', revenue: '', netProfit: '', totalAssets: '', totalLiabilities: '', growthRate: '', eps: '', boardMeetings: '', proposalCount: '', supervisionOpinions: '', budgetTarget: '', auditorName: '', companyName: '', establishedDate: '', registeredCapital: '', legalRepresentative: '', businessScope: '', background: '', content: '', description: '', proposer: '', proposalDate: today } as ProposalFormData;
+        return { proposalId: '', proposalName: '', revenue: '', netProfit: '', totalAssets: '', totalLiabilities: '', growthRate: '', eps: '', boardMeetings: '', proposalCount: '', supervisionOpinions: '', budgetTarget: '', auditorName: '', companyName: companyName || '', establishedDate: '', registeredCapital: '', legalRepresentative: '', businessScope: '', background: '', content: '', description: '', proposer: '', proposalDate: today } as ProposalFormData;
       case 'board_proposal':
-        return { companyName: '', planningPeriod: '', planningYears: '', coreDirection: '', proposalDate: today } as BoardProposalFormData;
+        return { companyName: companyName || '', planningPeriod: '', planningYears: '', coreDirection: '', proposalDate: today } as BoardProposalFormData;
       case 'board_voting':
-        return { votingDate: today, companyName: '', meetingNumber: '' } as BoardVotingFormData;
+        return { votingDate: today, companyName: companyName || '', meetingNumber: '' } as BoardVotingFormData;
       case 'board_minutes':
-        return { meetingDate: today, meetingTime: '', companyName: '', meetingNumber: '', attendeeNames: '', convenerName: '', hostName: '', recorderName: '', expectedDirectors: '' } as BoardMinutesFormData;
+        return { meetingDate: today, meetingTime: '', companyName: companyName || '', meetingNumber: '', attendeeNames: '', convenerName: '', hostName: '', recorderName: '', expectedDirectors: '' } as BoardMinutesFormData;
       case 'board_resolution':
-        return { meetingDate: today, meetingTime: '', companyName: '', meetingNumber: '', convenerHostName: '', expectedDirectors: '', resolutionDate: today } as BoardResolutionFormData;
+        return { meetingDate: today, meetingTime: '', companyName: companyName || '', meetingNumber: '', convenerHostName: '', expectedDirectors: '', resolutionDate: today } as BoardResolutionFormData;
       case 'board_signin':
-        return { meetingDate: today, companyName: '', meetingNumber: '', directors: [{ name: '', position: '董事' }] } as BoardSigninFormData;
+        return { meetingDate: today, companyName: companyName || '', meetingNumber: '', directors: [{ name: '', position: '董事' }] } as BoardSigninFormData;
       case 'board_notice':
-        return { meetingDate: today, meetingTime: '', companyName: '', meetingNumber: '', contactName: '', contactPhone: '', proposalName: '', noticeDate: today } as BoardNoticeFormData;
+        return { meetingDate: today, meetingTime: '', companyName: companyName || '', meetingNumber: '', contactName: '', contactPhone: '', proposalName: '', noticeDate: today } as BoardNoticeFormData;
       default:
         return {} as FormData;
     }
@@ -1536,9 +1538,17 @@ const DocumentFormModal: React.FC<{
     const contentMeetingTitle = template.id === 'voting'
       ? votingData.meetingTitle || votingContext?.meeting.title || meetingTitle
       : meetingTitle;
-    const content = generateDocumentContent(contentMeetingTitle, template.id, template.name, formData);
+    const rawCompanyName = (formData as { companyName?: string }).companyName;
+    const normalizedFormData = rawCompanyName
+      ? { ...formData, companyName: normalizeCompanyName(rawCompanyName) }
+      : formData;
+    if (rawCompanyName) {
+      localStorage.setItem("corporate_company_name", normalizeCompanyName(rawCompanyName));
+      setFormData(normalizedFormData as FormData);
+    }
+    const content = generateDocumentContent(contentMeetingTitle, template.id, template.name, normalizedFormData);
     try {
-      await onGenerate(content, formData);
+      await onGenerate(content, normalizedFormData);
       if (template.id === 'voting') {
         setActionMessage('空白表决票已生成，并已在飞书“文书表”创建记录。');
       } else {
@@ -1935,6 +1945,14 @@ export const DocumentCenter: React.FC<DocumentCenterProps> = ({ meetingId, editE
     setMeetingTitle(selected?.title || '');
   };
 
+  const selectedCompanyName = (() => {
+    const meeting = documentMeetings.find((item) => item.id === selectedDocumentMeetingId);
+    return fallbackCompanyName(
+      meeting?.companyName || localStorage.getItem("corporate_company_name") || undefined,
+      meeting?.entityType,
+    );
+  })();
+
   const meetingsForCategory = (category: MeetingCategory) => documentMeetings.filter((item) => {
     if (category === 'shareholder') return item.type.includes('股东');
     if (category === 'board') return item.type.includes('董事');
@@ -2181,6 +2199,10 @@ ${new Date().toLocaleDateString('zh-CN')}`,
       return;
     }
 
+    const companyName = fallbackCompanyName(regulationTitle);
+    setRegulationTitle(companyName);
+    localStorage.setItem("corporate_company_name", companyName);
+
     // 显示加载提示
     const loadingToast = document.createElement('div');
     loadingToast.className = 'fixed top-4 right-4 bg-mck-blue text-white px-4 py-2 rounded-lg shadow-lg z-50 flex items-center gap-2';
@@ -2200,21 +2222,21 @@ ${new Date().toLocaleDateString('zh-CN')}`,
       const xmlContent = await response.text();
       
       // 解析XML为格式化的可编辑文本
-      const paragraphs = parseRegulationXmlForEdit(xmlContent, regulationTitle);
+      const paragraphs = parseRegulationXmlForEdit(xmlContent, companyName);
       const content = paragraphs.join('\n\n');
 
       // 创建临时文档记录（未保存状态）
       const tempDoc: GeneratedDocument = {
         id: `temp-${Date.now()}-${template.id}`,
-        name: `${regulationTitle}${template.name}`,
+        name: `${companyName}${template.name}`,
         type: template.id,
         typeName: template.name,
-        meetingTitle: regulationTitle,
+        meetingTitle: companyName,
         level1Category: 'regulation',
         level2Category: template.id as RegulationCategory,
         date: new Date().toLocaleDateString('zh-CN'),
         content: content,
-        formData: { companyName: regulationTitle }
+        formData: { companyName }
       };
 
       // 打开编辑弹窗
@@ -3417,7 +3439,8 @@ ${email.body}`;
         <DocumentFormModal
           template={formTemplate}
           meetingTitle={meetingTitle}
-          meetingId={meetingId || undefined}
+          meetingId={selectedDocumentMeetingId || meetingId || undefined}
+          companyName={selectedCompanyName}
           onClose={() => setFormTemplate(null)}
           onGenerate={handleGenerateDocument}
           onBatchGenerate={handleBatchGenerateVotingDocuments}

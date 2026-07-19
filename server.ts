@@ -13,10 +13,12 @@ import { extractDocumentPlainText, titleFromDocument } from "./lib/knowledgeExtr
 import { glmChatCompletion } from "./lib/glmChat.js";
 import {
   createFeishuMeeting,
+  createFeishuProposals,
   createFeishuVotingDocument,
   deleteFeishuMeeting,
   getFeishuConfiguration,
   getFeishuMeeting,
+  getFeishuMeetingSourceBundle,
   getFeishuVotingContext,
   listFeishuPersonnel,
   listFeishuMeetings,
@@ -26,6 +28,7 @@ import {
   type FeishuMeetingInput,
   type FeishuVoteInput,
   type FeishuVotingDocumentInput,
+  type GeneratedProposalInput,
 } from "./lib/feishu.js";
 import { createMeetingPackage, type MeetingPackageType } from "./lib/meetingPackage.js";
 
@@ -247,6 +250,132 @@ async function startServer() {
     }
   });
 
+  app.get("/api/feishu/meetings/:recordId/source-bundle", async (req, res) => {
+    try {
+      const bundle = await getFeishuMeetingSourceBundle(req.params.recordId);
+      return res.json({ success: true, bundle, syncedAt: new Date().toISOString() });
+    } catch (error) {
+      return feishuApiError(res, error);
+    }
+  });
+
+  const demoProposalsFor = (meetingType: string): GeneratedProposalInput[] => {
+    if (meetingType.includes("股东")) {
+      return [
+        {
+          title: "关于审议公司2025年度董事会工作报告的议案",
+          type: "年度报告",
+          legalBasis: "《中华人民共和国公司法》及公司章程关于股东会职权的规定",
+          recommendation: "建议股东会审议通过，并授权董事会落实报告所列年度重点工作。",
+          content: "董事会已对2025年度公司治理、经营计划执行、重大事项决策、内部控制建设及股东会决议执行情况进行了全面总结。报告认为，公司治理机构运行规范，重点经营指标总体符合年度计划，重大交易均履行了相应审议程序。现提请股东会审议。",
+        },
+        {
+          title: "关于公司2025年度利润分配方案的议案",
+          type: "利润分配",
+          legalBasis: "《中华人民共和国公司法》、公司章程及公司利润分配管理制度",
+          recommendation: "建议在审计数据、可分配利润及现金流安全边界核实后审议通过。",
+          content: "综合考虑公司盈利情况、现金流状况、后续投资安排和股东合理回报，公司拟以实施权益分派股权登记日的总股本为基数进行现金分红，剩余未分配利润结转以后年度。本议案不涉及以资本公积转增股本。",
+        },
+        {
+          title: "关于建设公司三会治理数字化管理机制的议案",
+          type: "公司治理",
+          legalBasis: "《中华人民共和国公司法》及公司内部会议管理制度",
+          recommendation: "建议明确数据口径、权限边界、档案责任和实施期限后提交股东会表决。",
+          content: "为提升会议通知、议案审议、表决统计、纪要整理和文书归档的可追溯性，公司拟建设以飞书多维表格为数据中台的三会治理数字化机制，统一公司主体、人员、会议、议案、文书和表决数据，并保留全过程操作记录。",
+        },
+      ];
+    }
+    if (meetingType.includes("监事")) {
+      return [
+        {
+          title: "关于审议公司2025年度监事会工作报告的议案",
+          type: "监督报告",
+          legalBasis: "《中华人民共和国公司法》及公司章程关于监事会职权的规定",
+          recommendation: "建议监事会审议通过后提交年度股东会。",
+          content: "报告覆盖依法运作、财务检查、关联交易、内部控制、募集资金及董事高级管理人员履职监督情况。监事会认为公司重大决策程序总体合规，未发现损害公司和股东利益的重大情形。",
+        },
+        {
+          title: "关于公司2025年度内部控制评价报告的审核议案",
+          type: "内部控制",
+          legalBasis: "公司法、公司章程及公司内部控制制度",
+          recommendation: "建议对整改事项设定责任人和完成期限，并按季度跟踪闭环。",
+          content: "监事会对内部控制评价范围、评价方法、缺陷认定标准和整改进展进行了复核。现有控制体系能够覆盖主要业务和重大风险，但合同归档、关联方识别和会议资料留痕仍需进一步强化。",
+        },
+        {
+          title: "关于董事及高级管理人员2025年度履职情况的监督议案",
+          type: "履职监督",
+          legalBasis: "《中华人民共和国公司法》及公司章程",
+          recommendation: "建议形成书面监督意见并纳入年度履职档案。",
+          content: "监事会拟从忠实勤勉义务、重大事项报告、关联利益申报、会议出席和决议执行等维度，对董事和高级管理人员年度履职情况进行评价并形成监督意见。",
+        },
+      ];
+    }
+    return [
+      {
+        title: "关于审议公司2026年度经营计划及全面预算的议案",
+        type: "经营预算",
+        legalBasis: "《中华人民共和国公司法》及公司章程关于董事会职权的规定",
+        recommendation: "建议审议通过，并建立预算偏差月度监测和重大偏差报告机制。",
+        content: "公司结合行业趋势、在手订单、资金安排和风险承受能力编制了2026年度经营计划及全面预算。计划重点提升主营业务质量、现金流管理和重大项目投后管理水平，并明确预算调整权限和预警阈值。",
+      },
+      {
+        title: "关于公司办公场地租赁协议修订方案的议案",
+        type: "重大合同",
+        legalBasis: "公司章程、董事会议事规则及合同管理制度",
+        recommendation: "建议在核实租金公允性、租期、提前解约和关联关系后审议。",
+        content: "因经营布局调整，公司拟修订办公场地租赁协议。修订内容包括租赁面积、租金递增机制、装修投入归属、维修责任和提前解除安排。管理层已完成商业必要性和现金流影响测算。",
+      },
+      {
+        title: "关于完善公司三会治理与会议档案数字化管理机制的议案",
+        type: "公司治理",
+        legalBasis: "《中华人民共和国公司法》、公司章程及档案管理制度",
+        recommendation: "建议通过，并授权董事会秘书组织实施。",
+        content: "为提升会议通知、议案审议、表决统计、纪要整理、合规复核和文书归档的可追溯性，公司拟建设以飞书多维表格为数据中台的三会治理数字化机制，明确数据口径、审批权限和档案保管责任。",
+      },
+    ];
+  };
+
+  app.post("/api/feishu/meetings/:recordId/proposals/generate", async (req, res) => {
+    try {
+      const meeting = await getFeishuMeeting(req.params.recordId);
+      const requestedCount = Math.max(1, Math.min(Number(req.body?.count) || 3, 8));
+      let proposals = demoProposalsFor(meeting.type).slice(0, requestedCount);
+      let mode: "ai" | "demo" = "demo";
+      const apiKey = process.env.ZHIPU_API_KEY?.trim();
+      if (apiKey) {
+        try {
+          const result = await glmChatCompletion({
+            apiKey,
+            model: process.env.ZHIPU_MODEL || "glm-4-flash",
+            temperature: 0.35,
+            messages: [
+              {
+                role: "system",
+                content: "你是公司三会治理秘书。只输出 JSON 数组，不要输出解释。每项包含 title、type、content、legalBasis、recommendation。内容必须完整、可直接审议，不使用占位符。",
+              },
+              {
+                role: "user",
+                content: `请为${meeting.companyName || "该公司"}的“${meeting.title}”（类型：${meeting.type}，日期：${meeting.date}）生成 ${requestedCount} 项相互独立的议案。优先使用会议已有字段：${JSON.stringify(meeting.fields)}。`,
+              },
+            ],
+          });
+          const jsonText = result.content.replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
+          const parsed = JSON.parse(jsonText);
+          if (Array.isArray(parsed) && parsed.length) {
+            proposals = parsed.slice(0, requestedCount) as GeneratedProposalInput[];
+            mode = "ai";
+          }
+        } catch (error) {
+          console.warn("议案 AI 生成失败，改用完整演示议案：", error);
+        }
+      }
+      const created = await createFeishuProposals(req.params.recordId, proposals);
+      return res.status(201).json({ success: true, mode, proposals, created });
+    } catch (error) {
+      return feishuApiError(res, error);
+    }
+  });
+
   app.post("/api/feishu/documents", async (req, res) => {
     try {
       const document = await createFeishuVotingDocument(req.body as FeishuVotingDocumentInput);
@@ -331,6 +460,9 @@ async function startServer() {
         feishuValues["会议表.会务邮箱"] = feishuMeeting.contactEmail;
         feishuValues["会议表.状态"] = feishuMeeting.status;
         feishuValues["会议表.参会人员"] = feishuMeeting.participantNames.join("、");
+        if (feishuMeeting.companyName) {
+          feishuValues["公司主体表.公司名称"] = feishuMeeting.companyName;
+        }
         if (feishuMeeting.expectedAttendance !== undefined) {
           feishuValues["人员汇总.应到人数"] = feishuMeeting.expectedAttendance;
         }

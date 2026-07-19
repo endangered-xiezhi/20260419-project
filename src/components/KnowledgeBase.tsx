@@ -8,7 +8,7 @@ const KB_VERSION_KEY = "knowledge_import_version";
 
 const initialKnowledge: KnowledgeItem[] = [
   { id: "k1", title: "中华人民共和国公司法 (2024修订)", category: "法律法规", content: "第一百一十一条：董事会会议，应于会议召开十日前通知全体董事和监事。董事会召开临时会议，可以另定召集董事会的通知方式和通知时限。", lastModified: "2024-01-01", status: "已生效" },
-  { id: "k2", title: "智理科技股份有限公司章程", category: "公司章程", content: "第八十二条：公司董事会会议应当有过半数的董事出席方可举行。董事会作出决议，必须经全体董事的过半数通过。", lastModified: "2025-12-20", status: "已生效" },
+  { id: "k2", title: "XXX有限公司会议治理规则（示例）", category: "规章制度", content: "董事会会议应当有过半数的董事出席方可举行。董事会作出决议，应满足适用规则及公司内部制度规定的表决比例。", lastModified: "2025-12-20", status: "已生效" },
   { id: "k3", title: "关联交易管理制度", category: "规章制度", content: "第十五条：公司与关联人发生的交易金额在3000万元以上，且占公司最近一期经审计净资产绝对值5%以上的关联交易，应当提交股东大会审议。", lastModified: "2026-01-15", status: "已生效" },
 ];
 

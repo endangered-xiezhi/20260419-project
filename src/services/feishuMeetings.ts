@@ -19,6 +19,8 @@ export type ApiMeeting = {
   contactEmail?: string;
   status: string;
   participantNames?: string[];
+  companyName?: string;
+  entityType?: string;
   pendingFields?: string[];
 };
 
@@ -37,6 +39,8 @@ type MeetingWriteInput = {
   contactName?: string;
   contactPhone?: string;
   contactEmail?: string;
+  minutesContent?: string;
+  minutesUrl?: string;
   status?: Meeting["status"];
   participantNames?: string[];
 };
@@ -170,4 +174,45 @@ export async function deleteMeetingFromFeishu(id: string) {
     `/api/feishu/meetings/${encodeURIComponent(id)}`,
     { method: "DELETE" },
   );
+}
+
+export type FeishuMeetingSourceBundle = {
+  meeting: ApiMeeting & { fields?: Record<string, unknown> };
+  minutes: {
+    source: "feishu_minutes" | "meeting_table" | "missing";
+    url: string;
+    token: string;
+    title: string;
+    duration?: number;
+    ownerId: string;
+    content: string;
+    metadataStatus: "loaded" | "not_configured" | "unavailable";
+    metadataMessage?: string;
+  };
+  proposals: Array<{ id: string; number: string; title: string; content: string }>;
+  missingFields: string[];
+};
+
+export async function getMeetingSourceBundle(id: string) {
+  return apiRequest<{ success: true; bundle: FeishuMeetingSourceBundle; syncedAt: string }>(
+    `/api/feishu/meetings/${encodeURIComponent(id)}/source-bundle`,
+  );
+}
+
+export async function generateMeetingProposals(id: string, count = 3) {
+  return apiRequest<{
+    success: true;
+    mode: "ai" | "demo";
+    proposals: Array<{
+      title: string;
+      type?: string;
+      content: string;
+      legalBasis?: string;
+      recommendation?: string;
+    }>;
+    created: Array<{ recordId: string; title: string }>;
+  }>(`/api/feishu/meetings/${encodeURIComponent(id)}/proposals/generate`, {
+    method: "POST",
+    body: JSON.stringify({ count }),
+  });
 }
