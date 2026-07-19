@@ -1029,6 +1029,170 @@ export type FeishuVotingDocumentInput = {
   content: string;
 };
 
+export type FeishuReviewDocument = {
+  recordId: string;
+  title: string;
+  content: string;
+  meetingId: string;
+  attachment?: {
+    fileToken: string;
+    fileName: string;
+  };
+  fields: Record<string, unknown>;
+};
+
+function collectAttachments(value: unknown): Array<{ fileToken: string; fileName: string }> {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.flatMap(collectAttachments);
+  if (typeof value !== "object") return [];
+  const object = value as Record<string, unknown>;
+  const fileToken =
+    typeof object.file_token === "string"
+      ? object.file_token
+      : typeof object.fileToken === "string"
+        ? object.fileToken
+        : "";
+  const fileName =
+    typeof object.name === "string"
+      ? object.name
+      : typeof object.file_name === "string"
+        ? object.file_name
+        : "飞书文书.docx";
+  const own = fileToken ? [{ fileToken, fileName }] : [];
+  return own.concat(Object.values(object).flatMap(collectAttachments));
+}
+
+export async function getFeishuDocumentForReview(
+  recordId: string,
+): Promise<FeishuReviewDocument> {
+  if (!recordId.trim()) throw new Error("缺少飞书文书记录 ID");
+  const { token, appToken } = await getBitableContext();
+  const tableId = await resolveTableId(
+    token,
+    appToken,
+    "FEISHU_DOCUMENT_TABLE_ID",
+    ["文书表"],
+  );
+  const result = await feishuRequest<FeishuRecordResponse>(
+    `/bitable/v1/apps/${encodeURIComponent(appToken)}/tables/${encodeURIComponent(tableId)}/records/${encodeURIComponent(recordId.trim())}`,
+    token,
+  );
+  const record = result.data?.record;
+  if (!record) throw new Error("飞书没有返回该文书记录");
+
+  const preferredAttachmentFields = ["文书附件", "附件", "文书文件", "文件", "Word文件"];
+  let attachments = preferredAttachmentFields.flatMap((name) =>
+    collectAttachments(record.fields[name]),
+  );
+  if (!attachments.length) {
+    attachments = Object.values(record.fields).flatMap(collectAttachments);
+  }
+
+  return {
+    recordId: record.record_id,
+    title:
+      firstReadableField(record.fields, ["文书名称", "文件名称", "标题", "名称"]) ||
+      attachments[0]?.fileName ||
+      "飞书文书",
+    content: firstReadableField(record.fields, [
+      "文书正文",
+      "文件正文",
+      "审查正文",
+      "会议纪要正文",
+      "会议纪要",
+    ]),
+    meetingId: relationRecordIds(record.fields["关联会议"])[0] || "",
+    attachment: attachments[0],
+    fields: record.fields,
+  };
+}
+
+export async function downloadFeishuBitableAttachment(fileToken: string) {
+  if (!fileToken.trim()) throw new Error("飞书附件缺少 file_token");
+  const token = await getTenantAccessToken();
+  const response = await fetch(
+    `${FEISHU_API_BASE}/drive/v1/medias/${encodeURIComponent(fileToken.trim())}/download`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!response.ok) {
+    let message = `飞书附件下载失败，HTTP ${response.status}`;
+    try {
+      const error = (await response.json()) as { msg?: string; code?: number };
+      message = `${error.msg || message}${error.code ? `（飞书错误码 ${error.code}）` : ""}`;
+    } catch {
+      // 二进制下载失败时响应不一定是 JSON。
+    }
+    throw new Error(message);
+  }
+  const buffer = Buffer.from(await response.arrayBuffer());
+  if (buffer.length > 25 * 1024 * 1024) {
+    throw new Error("飞书附件超过 25MB，暂不支持自动审查");
+  }
+  return {
+    buffer,
+    contentType: response.headers.get("content-type") || "application/octet-stream",
+  };
+}
+
+export async function updateFeishuDocumentReview(
+  recordId: string,
+  input: {
+    status: "审查中" | "审查完成" | "审查失败";
+    score?: number;
+    riskLevel?: string;
+    report?: string;
+    riskSummary?: string;
+    missingItems?: string[];
+    errorMessage?: string;
+  },
+) {
+  const { token, appToken } = await getBitableContext();
+  const tableId = await resolveTableId(
+    token,
+    appToken,
+    "FEISHU_DOCUMENT_TABLE_ID",
+    ["文书表"],
+  );
+  const availableFields = await getTableFieldNames(token, appToken, tableId);
+  const fields: Record<string, unknown> = {};
+  const put = (name: string, value: unknown) => {
+    if (availableFields.has(name)) fields[name] = value;
+  };
+
+  put("审查状态", input.status);
+  if (typeof input.score === "number") put("审查分数", input.score);
+  if (input.riskLevel) put("风险等级", input.riskLevel);
+  if (input.report) put("审查报告", input.report.slice(0, 100_000));
+  if (input.riskSummary) put("风险摘要", input.riskSummary.slice(0, 20_000));
+  if (input.missingItems) put("缺失材料", input.missingItems.join("\n").slice(0, 20_000));
+  if (input.errorMessage) put("审查错误", input.errorMessage.slice(0, 5_000));
+  put("审查时间", Date.now());
+
+  if (!Object.keys(fields).length) {
+    throw new Error("文书表尚未创建审查字段，至少需要“审查状态”字段");
+  }
+
+  await feishuRequest<FeishuRecordResponse>(
+    `/bitable/v1/apps/${encodeURIComponent(appToken)}/tables/${encodeURIComponent(tableId)}/records/${encodeURIComponent(recordId.trim())}`,
+    token,
+    { method: "PUT", body: JSON.stringify({ fields }) },
+  );
+
+  return {
+    updatedFields: Object.keys(fields),
+    missingRecommendedFields: [
+      "审查状态",
+      "审查分数",
+      "风险等级",
+      "审查报告",
+      "风险摘要",
+      "缺失材料",
+      "审查时间",
+      "审查错误",
+    ].filter((name) => !availableFields.has(name)),
+  };
+}
+
 export async function createFeishuVotingDocument(input: FeishuVotingDocumentInput) {
   if (!input.meetingId || !input.shareholderId || !input.title.trim() || !input.content.trim()) {
     throw new Error("会议、股东、文书名称和文书正文不能为空");

@@ -20,7 +20,9 @@ import {
   createFeishuProposals,
   createFeishuVotingDocument,
   deleteFeishuMeeting,
+  downloadFeishuBitableAttachment,
   getFeishuConfiguration,
+  getFeishuDocumentForReview,
   getFeishuMeeting,
   getFeishuMeetingSourceBundle,
   getFeishuVotingContext,
@@ -29,6 +31,7 @@ import {
   listFeishuTables,
   submitFeishuVote,
   updateFeishuMeeting,
+  updateFeishuDocumentReview,
   type FeishuMeetingInput,
   type FeishuVoteInput,
   type FeishuVotingDocumentInput,
@@ -674,6 +677,190 @@ async function startServer() {
         success: false,
         error: error instanceof Error ? error.message : "合规审查失败",
       });
+    }
+  });
+
+  app.get("/api/feishu/automation/compliance-review/status", (_req, res) => {
+    res.json({
+      success: true,
+      endpointReady: true,
+      secretConfigured: Boolean(process.env.FEISHU_AUTOMATION_SECRET?.trim()),
+      method: "POST",
+    });
+  });
+
+  /**
+   * 飞书多维表格自动化入口。
+   * 当“文书表”新增或修改附件时，由飞书自动化向本接口发送记录 ID。
+   */
+  app.post("/api/feishu/automation/compliance-review", async (req, res) => {
+    const configuredSecret = process.env.FEISHU_AUTOMATION_SECRET?.trim() || "";
+    const suppliedSecret =
+      (typeof req.headers["x-automation-secret"] === "string"
+        ? req.headers["x-automation-secret"]
+        : "") ||
+      (typeof req.body?.secret === "string" ? req.body.secret : "");
+    const configuredSecretBuffer = Buffer.from(configuredSecret);
+    const suppliedSecretBuffer = Buffer.from(suppliedSecret);
+    const secretMatches =
+      configuredSecret.length > 0 &&
+      suppliedSecretBuffer.length === configuredSecretBuffer.length &&
+      crypto.timingSafeEqual(
+        suppliedSecretBuffer,
+        configuredSecretBuffer,
+      );
+
+    if (!configuredSecret) {
+      return res.status(503).json({
+        success: false,
+        error: "Render 尚未配置 FEISHU_AUTOMATION_SECRET",
+      });
+    }
+    if (!secretMatches) {
+      return res.status(401).json({
+        success: false,
+        error: "自动化密钥不正确",
+      });
+    }
+
+    const documentRecordId =
+      typeof req.body?.documentRecordId === "string"
+        ? req.body.documentRecordId.trim()
+        : typeof req.body?.recordId === "string"
+          ? req.body.recordId.trim()
+          : "";
+    const requestedMeetingId =
+      typeof req.body?.meetingRecordId === "string"
+        ? req.body.meetingRecordId.trim()
+        : "";
+    const force = req.body?.force === true;
+
+    if (!documentRecordId) {
+      return res.status(400).json({
+        success: false,
+        error: "缺少 documentRecordId（飞书当前文书记录 ID）",
+      });
+    }
+
+    let temporaryFilePath = "";
+    try {
+      const document = await getFeishuDocumentForReview(documentRecordId);
+      const currentStatus = JSON.stringify(document.fields["审查状态"] || "");
+      if (!force && /审查中|审查完成/.test(currentStatus)) {
+        return res.json({
+          success: true,
+          skipped: true,
+          message: currentStatus.includes("审查完成")
+            ? "该文书已经审查完成；如需重审请发送 force=true"
+            : "该文书正在审查，本次重复触发已忽略",
+          documentRecordId,
+        });
+      }
+
+      await updateFeishuDocumentReview(documentRecordId, { status: "审查中" });
+
+      let content = document.content.trim();
+      if (!content && document.attachment) {
+        const downloaded = await downloadFeishuBitableAttachment(
+          document.attachment.fileToken,
+        );
+        let extension = path.extname(document.attachment.fileName).toLowerCase();
+        if (![".docx", ".doc", ".pdf", ".txt"].includes(extension)) {
+          if (downloaded.contentType.includes("pdf")) extension = ".pdf";
+          else if (downloaded.contentType.includes("wordprocessingml")) extension = ".docx";
+          else if (downloaded.contentType.includes("msword")) extension = ".doc";
+          else if (downloaded.contentType.includes("text/plain")) extension = ".txt";
+        }
+        if (![".docx", ".doc", ".pdf", ".txt"].includes(extension)) {
+          throw new Error(`不支持自动审查该附件格式：${extension || downloaded.contentType}`);
+        }
+        const automationUploadsDir = join(uploadsDir, "automation-review");
+        await fs.mkdir(automationUploadsDir, { recursive: true });
+        temporaryFilePath = join(
+          automationUploadsDir,
+          `${crypto.randomUUID()}${extension}`,
+        );
+        await fs.writeFile(temporaryFilePath, downloaded.buffer);
+        content = (await extractDocumentPlainText(temporaryFilePath)).trim();
+      }
+
+      if (!content) {
+        throw new Error("文书表没有“文书正文”，也没有可下载的 Word、PDF 或 TXT 附件");
+      }
+
+      const meetingId = requestedMeetingId || document.meetingId;
+      let meetingContext: ComplianceMeetingContext | undefined;
+      let feishuMeetingWarning = "";
+      if (meetingId) {
+        try {
+          const bundle = await getFeishuMeetingSourceBundle(meetingId);
+          meetingContext = {
+            title: bundle.meeting.title,
+            type: bundle.meeting.type,
+            date: bundle.meeting.date,
+            noticeDate: bundle.meeting.noticeDate,
+            location: bundle.meeting.location,
+            companyName: bundle.meeting.companyName,
+            entityType: bundle.meeting.entityType,
+            participantNames: bundle.meeting.participantNames,
+            expectedAttendance: bundle.meeting.expectedAttendance,
+            actualAttendance: bundle.meeting.actualAttendance,
+            proposals: bundle.proposals.map((proposal) => proposal.title),
+            minutesContent: bundle.minutes.content,
+            missingFields: bundle.missingFields,
+          };
+        } catch (error) {
+          feishuMeetingWarning =
+            error instanceof Error ? error.message : "关联会议读取失败";
+        }
+      }
+
+      const review = reviewMeetingDocument(content, meetingContext);
+      const update = await updateFeishuDocumentReview(documentRecordId, {
+        status: "审查完成",
+        score: review.score,
+        riskLevel: review.conclusion,
+        report: review.markdown,
+        riskSummary: review.riskAlerts.join("\n"),
+        missingItems: review.missingItems,
+      });
+
+      return res.json({
+        success: true,
+        skipped: false,
+        data: {
+          documentRecordId,
+          meetingRecordId: meetingId,
+          documentTitle: document.title,
+          score: review.score,
+          conclusion: review.conclusion,
+          riskCount: review.riskAlerts.length,
+          missingCount: review.missingItems.length,
+          updatedFields: update.updatedFields,
+          missingRecommendedFields: update.missingRecommendedFields,
+          feishuMeetingWarning,
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "自动审查失败";
+      console.error("飞书自动审查失败:", message);
+      try {
+        await updateFeishuDocumentReview(documentRecordId, {
+          status: "审查失败",
+          errorMessage: message,
+        });
+      } catch (writeBackError) {
+        console.error("飞书审查失败状态写回失败:", writeBackError);
+      }
+      return res.status(500).json({
+        success: false,
+        documentRecordId,
+        error: message,
+      });
+    } finally {
+      if (temporaryFilePath) {
+        await fs.unlink(temporaryFilePath).catch(() => {});
+      }
     }
   });
 
