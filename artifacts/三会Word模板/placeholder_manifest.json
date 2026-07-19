@@ -1,0 +1,551 @@
+{
+  "version": "1.0",
+  "placeholderSyntax": "{{表名.字段名}}",
+  "templates": [
+    "02-董事会/01-会议通知及回执.docx",
+    "02-董事会/02-签到表.docx",
+    "02-董事会/03-表决票.docx",
+    "02-董事会/04-会议决议.docx",
+    "02-董事会/05-会议记录.docx",
+    "02-董事会/06-议案.docx",
+    "03-监事会/01-会议通知及回执.docx",
+    "03-监事会/02-签到表.docx",
+    "03-监事会/03-表决票.docx",
+    "03-监事会/04-会议决议.docx",
+    "03-监事会/05-会议记录.docx",
+    "03-监事会/06-议案.docx",
+    "01-股东会/01-会议通知及回执.docx",
+    "01-股东会/02-签到表.docx",
+    "01-股东会/03-表决票.docx",
+    "01-股东会/04-会议决议.docx",
+    "01-股东会/05-会议记录.docx",
+    "01-股东会/06-议案.docx",
+    "01-股东会/07-会议议程.docx",
+    "01-股东会/08-授权委托书.docx",
+    "01-股东会/09-表决结果统计表.docx"
+  ],
+  "fields": [
+    {
+      "token": "{{#出席股东列表}}",
+      "status": "循环标记"
+    },
+    {
+      "token": "{{#参会人员列表}}",
+      "status": "循环标记"
+    },
+    {
+      "token": "{{#签署人列表}}",
+      "status": "循环标记"
+    },
+    {
+      "token": "{{#议案列表}}",
+      "status": "循环标记"
+    },
+    {
+      "token": "{{/出席股东列表}}",
+      "status": "循环标记"
+    },
+    {
+      "token": "{{/参会人员列表}}",
+      "status": "循环标记"
+    },
+    {
+      "token": "{{/签署人列表}}",
+      "status": "循环标记"
+    },
+    {
+      "token": "{{/议案列表}}",
+      "status": "循环标记"
+    },
+    {
+      "token": "{{人员表.回避事项}}",
+      "table": "人员表",
+      "field": "回避事项",
+      "field_id": "fldf6lVErR",
+      "status": "现有",
+      "purpose": "回避说明",
+      "transform": ""
+    },
+    {
+      "token": "{{人员表.姓名文本}}",
+      "table": "人员表",
+      "field": "姓名文本",
+      "field_id": "",
+      "status": "建议新增",
+      "purpose": "外部人员或非飞书成员姓名",
+      "transform": ""
+    },
+    {
+      "token": "{{人员表.是否出席}}",
+      "table": "人员表",
+      "field": "是否出席",
+      "field_id": "",
+      "status": "建议新增",
+      "purpose": "签到和出席统计",
+      "transform": ""
+    },
+    {
+      "token": "{{人员表.角色}}",
+      "table": "人员表",
+      "field": "角色",
+      "field_id": "fldDaCYhdv",
+      "status": "现有",
+      "purpose": "董事、监事、高管等",
+      "transform": ""
+    },
+    {
+      "token": "{{会议表.主持人}}",
+      "table": "会议表",
+      "field": "主持人",
+      "field_id": "fldilCGdq2",
+      "status": "现有",
+      "purpose": "会议主持人",
+      "transform": ""
+    },
+    {
+      "token": "{{会议表.主题}}",
+      "table": "会议表",
+      "field": "主题",
+      "field_id": "fldBjhF9dj",
+      "status": "现有",
+      "purpose": "会议名称或主题",
+      "transform": ""
+    },
+    {
+      "token": "{{会议表.会务联系人}}",
+      "table": "会议表",
+      "field": "会务联系人",
+      "field_id": "",
+      "status": "建议新增",
+      "purpose": "通知联系信息",
+      "transform": ""
+    },
+    {
+      "token": "{{会议表.会务联系电话}}",
+      "table": "会议表",
+      "field": "会务联系电话",
+      "field_id": "",
+      "status": "建议新增",
+      "purpose": "通知联系信息",
+      "transform": ""
+    },
+    {
+      "token": "{{会议表.会务邮箱}}",
+      "table": "会议表",
+      "field": "会务邮箱",
+      "field_id": "",
+      "status": "建议新增",
+      "purpose": "通知联系信息",
+      "transform": ""
+    },
+    {
+      "token": "{{会议表.会议地点}}",
+      "table": "会议表",
+      "field": "会议地点",
+      "field_id": "",
+      "status": "建议新增",
+      "purpose": "通知、议程、签到、记录、决议",
+      "transform": ""
+    },
+    {
+      "token": "{{会议表.会议编号}}",
+      "table": "会议表",
+      "field": "会议编号",
+      "field_id": "fldlFssE42",
+      "status": "现有",
+      "purpose": "会议编号",
+      "transform": ""
+    },
+    {
+      "token": "{{会议表.出席比例}}",
+      "table": "会议表",
+      "field": "出席比例",
+      "field_id": "",
+      "status": "建议新增",
+      "purpose": "出席比例",
+      "transform": "百分比"
+    },
+    {
+      "token": "{{会议表.列席人员}}",
+      "table": "会议表",
+      "field": "列席人员",
+      "field_id": "fldkIfvgGg",
+      "status": "现有",
+      "purpose": "列席人员列表",
+      "transform": ""
+    },
+    {
+      "token": "{{会议表.参会人员}}",
+      "table": "会议表",
+      "field": "参会人员",
+      "field_id": "fldgCWNg7n",
+      "status": "现有",
+      "purpose": "关联人员列表",
+      "transform": ""
+    },
+    {
+      "token": "{{会议表.召开方式}}",
+      "table": "会议表",
+      "field": "召开方式",
+      "field_id": "",
+      "status": "建议新增",
+      "purpose": "现场、通讯或结合",
+      "transform": ""
+    },
+    {
+      "token": "{{会议表.召集人}}",
+      "table": "会议表",
+      "field": "召集人",
+      "field_id": "fldTVMhabV",
+      "status": "现有",
+      "purpose": "会议召集人",
+      "transform": ""
+    },
+    {
+      "token": "{{会议表.妙记/纪要链接}}",
+      "table": "会议表",
+      "field": "妙记/纪要链接",
+      "field_id": "fldT14EsPF",
+      "status": "现有",
+      "purpose": "会议纪要来源链接",
+      "transform": ""
+    },
+    {
+      "token": "{{会议表.实到人数}}",
+      "table": "会议表",
+      "field": "实到人数",
+      "field_id": "",
+      "status": "建议新增",
+      "purpose": "法定人数说明",
+      "transform": ""
+    },
+    {
+      "token": "{{会议表.应到人数}}",
+      "table": "会议表",
+      "field": "应到人数",
+      "field_id": "",
+      "status": "建议新增",
+      "purpose": "法定人数说明",
+      "transform": ""
+    },
+    {
+      "token": "{{会议表.时间|日期}}",
+      "table": "会议表",
+      "field": "时间",
+      "field_id": "fldgvOzCd5",
+      "status": "现有",
+      "purpose": "会议日期",
+      "transform": "yyyy年M月d日"
+    },
+    {
+      "token": "{{会议表.时间|时间}}",
+      "table": "会议表",
+      "field": "时间",
+      "field_id": "fldgvOzCd5",
+      "status": "现有",
+      "purpose": "会议时刻",
+      "transform": "HH时mm分"
+    },
+    {
+      "token": "{{会议表.监票人}}",
+      "table": "会议表",
+      "field": "监票人",
+      "field_id": "",
+      "status": "建议新增",
+      "purpose": "股东会监票签署",
+      "transform": ""
+    },
+    {
+      "token": "{{会议表.表决方式}}",
+      "table": "会议表",
+      "field": "表决方式",
+      "field_id": "",
+      "status": "建议新增",
+      "purpose": "记名投票、通讯表决等",
+      "transform": ""
+    },
+    {
+      "token": "{{会议表.计票人}}",
+      "table": "会议表",
+      "field": "计票人",
+      "field_id": "",
+      "status": "建议新增",
+      "purpose": "股东会计票签署",
+      "transform": ""
+    },
+    {
+      "token": "{{会议表.记录人}}",
+      "table": "会议表",
+      "field": "记录人",
+      "field_id": "fldbdPio5s",
+      "status": "现有",
+      "purpose": "会议记录人",
+      "transform": ""
+    },
+    {
+      "token": "{{会议表.通知发出时间|日期}}",
+      "table": "会议表",
+      "field": "通知发出时间",
+      "field_id": "",
+      "status": "建议新增",
+      "purpose": "通知落款和合规校验",
+      "transform": "yyyy年M月d日"
+    },
+    {
+      "token": "{{公司主体表.公司名称}}",
+      "table": "公司主体表",
+      "field": "公司名称",
+      "field_id": "",
+      "status": "建议新增",
+      "purpose": "文书抬头、正文及签署页",
+      "transform": ""
+    },
+    {
+      "token": "{{公司主体表.章程名称}}",
+      "table": "公司主体表",
+      "field": "章程名称",
+      "field_id": "",
+      "status": "建议新增",
+      "purpose": "合规依据",
+      "transform": ""
+    },
+    {
+      "token": "{{序号}}",
+      "status": "模板控制/序号"
+    },
+    {
+      "token": "{{股东汇总.出席股东数}}",
+      "table": "股东表",
+      "field": "出席状态",
+      "field_id": "",
+      "status": "派生",
+      "purpose": "出席股东/代表数量",
+      "transform": ""
+    },
+    {
+      "token": "{{股东汇总.出席股份比例}}",
+      "table": "股东表",
+      "field": "本次表决权股份数",
+      "field_id": "",
+      "status": "派生",
+      "purpose": "出席表决权占总表决权比例",
+      "transform": "百分比"
+    },
+    {
+      "token": "{{股东汇总.出席表决权股份数}}",
+      "table": "股东表",
+      "field": "本次表决权股份数",
+      "field_id": "",
+      "status": "派生",
+      "purpose": "出席股东表决权合计",
+      "transform": ""
+    },
+    {
+      "token": "{{股东表.持股数量}}",
+      "table": "股东表",
+      "field": "持股数量",
+      "field_id": "",
+      "status": "建议新增",
+      "purpose": "股东表决权股份数",
+      "transform": ""
+    },
+    {
+      "token": "{{股东表.持股比例}}",
+      "table": "股东表",
+      "field": "持股比例",
+      "field_id": "fldbAwq8E0",
+      "status": "现有",
+      "purpose": "持股比例",
+      "transform": "百分比"
+    },
+    {
+      "token": "{{股东表.授权代表}}",
+      "table": "股东表",
+      "field": "授权代表",
+      "field_id": "",
+      "status": "建议新增",
+      "purpose": "法人股东代表",
+      "transform": ""
+    },
+    {
+      "token": "{{股东表.股东名称}}",
+      "table": "股东表",
+      "field": "股东名称",
+      "field_id": "fldn7J45F2",
+      "status": "现有",
+      "purpose": "股东名称",
+      "transform": ""
+    },
+    {
+      "token": "{{股东表.股东类型}}",
+      "table": "股东表",
+      "field": "股东类型",
+      "field_id": "",
+      "status": "建议新增",
+      "purpose": "自然人、法人或其他组织",
+      "transform": ""
+    },
+    {
+      "token": "{{股东表决汇总.反对股份数}}",
+      "table": "表决表",
+      "field": "表决权股份数",
+      "field_id": "",
+      "status": "建议新增",
+      "purpose": "按议案汇总反对股份",
+      "transform": ""
+    },
+    {
+      "token": "{{股东表决汇总.同意比例}}",
+      "table": "表决表",
+      "field": "表决权股份数",
+      "field_id": "",
+      "status": "派生",
+      "purpose": "同意股份占有效表决权比例",
+      "transform": "百分比"
+    },
+    {
+      "token": "{{股东表决汇总.同意股份数}}",
+      "table": "表决表",
+      "field": "表决权股份数",
+      "field_id": "",
+      "status": "建议新增",
+      "purpose": "按议案汇总同意股份",
+      "transform": ""
+    },
+    {
+      "token": "{{股东表决汇总.回避股份数}}",
+      "table": "表决表",
+      "field": "表决权股份数",
+      "field_id": "",
+      "status": "建议新增",
+      "purpose": "按议案汇总回避股份",
+      "transform": ""
+    },
+    {
+      "token": "{{股东表决汇总.弃权股份数}}",
+      "table": "表决表",
+      "field": "表决权股份数",
+      "field_id": "",
+      "status": "建议新增",
+      "purpose": "按议案汇总弃权股份",
+      "transform": ""
+    },
+    {
+      "token": "{{股东表决汇总.表决结论}}",
+      "table": "议案表",
+      "field": "审议结论",
+      "field_id": "",
+      "status": "建议新增",
+      "purpose": "结合章程门槛计算",
+      "transform": ""
+    },
+    {
+      "token": "{{表决汇总.反对数}}",
+      "table": "表决表",
+      "field": "表决意见",
+      "field_id": "fldRxhrOON",
+      "status": "派生",
+      "purpose": "按关联会议及议案统计反对",
+      "transform": ""
+    },
+    {
+      "token": "{{表决汇总.同意数}}",
+      "table": "表决表",
+      "field": "表决意见",
+      "field_id": "fldRxhrOON",
+      "status": "派生",
+      "purpose": "按关联会议及议案统计同意",
+      "transform": ""
+    },
+    {
+      "token": "{{表决汇总.同意比例}}",
+      "table": "表决表",
+      "field": "表决意见",
+      "field_id": "fldRxhrOON",
+      "status": "派生",
+      "purpose": "同意数除以有效表决基数",
+      "transform": "百分比"
+    },
+    {
+      "token": "{{表决汇总.回避数}}",
+      "table": "表决表",
+      "field": "是否回避",
+      "field_id": "fldJWAC4Ip",
+      "status": "派生",
+      "purpose": "按关联会议及议案统计回避",
+      "transform": ""
+    },
+    {
+      "token": "{{表决汇总.弃权数}}",
+      "table": "表决表",
+      "field": "表决意见",
+      "field_id": "fldRxhrOON",
+      "status": "派生",
+      "purpose": "按关联会议及议案统计弃权",
+      "transform": ""
+    },
+    {
+      "token": "{{表决汇总.表决结论}}",
+      "table": "议案表",
+      "field": "审议结论",
+      "field_id": "",
+      "status": "建议新增",
+      "purpose": "结合章程门槛计算",
+      "transform": ""
+    },
+    {
+      "token": "{{议案表.提请机构}}",
+      "table": "议案表",
+      "field": "提请机构",
+      "field_id": "",
+      "status": "建议新增",
+      "purpose": "提交董事会、监事会或股东会",
+      "transform": ""
+    },
+    {
+      "token": "{{议案表.议案标题}}",
+      "table": "议案表",
+      "field": "议案标题",
+      "field_id": "fldmuoekks",
+      "status": "现有",
+      "purpose": "议案名称",
+      "transform": ""
+    },
+    {
+      "token": "{{议案表.议案正文}}",
+      "table": "议案表",
+      "field": "议案正文",
+      "field_id": "",
+      "status": "建议新增",
+      "purpose": "正式议案正文或摘要",
+      "transform": ""
+    },
+    {
+      "token": "{{议案表.议案类型}}",
+      "table": "议案表",
+      "field": "议案类型",
+      "field_id": "fldAkUqQGa",
+      "status": "现有",
+      "purpose": "议案分类",
+      "transform": ""
+    },
+    {
+      "token": "{{议案表.议案编号}}",
+      "table": "议案表",
+      "field": "议案编号",
+      "field_id": "fldE1L23Ip",
+      "status": "现有",
+      "purpose": "议案编号",
+      "transform": ""
+    },
+    {
+      "token": "{{议案表.适用规则}}",
+      "table": "议案表",
+      "field": "适用规则",
+      "field_id": "fldEsds9bE",
+      "status": "现有",
+      "purpose": "适用法律及章程规则",
+      "transform": ""
+    }
+  ]
+}

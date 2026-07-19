@@ -2,6 +2,14 @@ import React, { useState, useEffect, useMemo } from "react";
 import { Plus, Filter, Calendar as CalendarIcon, MoreHorizontal, ChevronRight, ChevronLeft, List, X, Edit2, Users, Save, Mail, Send, Pencil, Check, Trash2, History } from "lucide-react";
 import { Meeting, MeetingType, Personnel } from "../types";
 import { cn } from "@/lib/utils";
+import {
+  createMeetingInFeishu,
+  deleteMeetingFromFeishu,
+  listPersonnelFromFeishu,
+  listMeetingsFromFeishu,
+  toFrontendMeeting,
+  updateMeetingInFeishu,
+} from "@/services/feishuMeetings";
 
 // 排序优先级：董事 > 监事 > 高级管理人员 > 单一身份股东
 const getPersonnelSortPriority = (p: Personnel): number => {
@@ -279,9 +287,12 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
   const [showNewMeetingModal, setShowNewMeetingModal] = useState(false);
   const [newMeeting, setNewMeeting] = useState<Partial<Meeting>>({
     type: "股东会",
+    nature: "定期",
     status: "筹备中",
     participants: [],
     threshold: "",
+    meetingMode: "现场",
+    votingMethod: "现场投票",
   });
 
   // 编辑与会人员弹窗
@@ -309,6 +320,8 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
   const [editingTitle, setEditingTitle] = useState("");
   // 删除会议确认弹窗
   const [deleteConfirm, setDeleteConfirm] = useState<{ meetingId: string; meetingTitle: string } | null>(null);
+  const [syncStatus, setSyncStatus] = useState<"connecting" | "synced" | "saving" | "error">("connecting");
+  const [syncMessage, setSyncMessage] = useState("正在连接飞书");
 
   // 获取法务联系人名字（从人员列表中查找法务角色）
   const getLegalContactName = (): string => {
@@ -322,7 +335,7 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
   };
 
   // 获取与会人员列表（排序：董监高在前，单一身份股东按持股比例在后）
-  const personnelList: Personnel[] = useMemo(() => {
+  const [personnelList, setPersonnelList] = useState<Personnel[]>(() => {
     const saved = localStorage.getItem("corporate_personnel_matrix");
     const list: Personnel[] = saved ? JSON.parse(saved) : [];
     return [...list].sort((a, b) => {
@@ -339,11 +352,76 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
       }
       return 0;
     });
+  });
+
+  useEffect(() => {
+    let active = true;
+    listPersonnelFromFeishu()
+      .then((result) => {
+        if (!active || result.personnel.length === 0) return;
+        const sorted = [...result.personnel].sort((a, b) => {
+          const priority = getPersonnelSortPriority(a) - getPersonnelSortPriority(b);
+          return priority || a.name.localeCompare(b.name, "zh-CN");
+        });
+        setPersonnelList(sorted);
+        localStorage.setItem("corporate_personnel_matrix", JSON.stringify(sorted));
+      })
+      .catch(() => {
+        // 飞书人员接口尚未部署或暂时不可用时，继续使用本地缓存。
+      });
+    return () => {
+      active = false;
+    };
   }, []);
+
+  const personnelIdByName = useMemo(
+    () => new Map(personnelList.map((person) => [person.name, person.id])),
+    [personnelList],
+  );
 
   useEffect(() => {
     localStorage.setItem("corporate_meetings_list", JSON.stringify(meetings));
   }, [meetings]);
+
+  useEffect(() => {
+    let active = true;
+
+    const syncMeetings = async () => {
+      try {
+        const result = await listMeetingsFromFeishu();
+        if (!active) return;
+        setMeetings(result.meetings.map((meeting) => toFrontendMeeting(meeting, personnelIdByName)));
+        setSyncStatus("synced");
+        setSyncMessage(`已与飞书同步 ${new Date(result.syncedAt).toLocaleTimeString("zh-CN", {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        })}`);
+      } catch (error) {
+        if (!active) return;
+        setSyncStatus("error");
+        setSyncMessage(error instanceof Error ? error.message : "飞书同步失败");
+      }
+    };
+
+    void syncMeetings();
+    const timer = window.setInterval(() => {
+      if (!showNewMeetingModal && !editingMeetingId && !editingMeetingParticipants && !deleteConfirm) {
+        void syncMeetings();
+      }
+    }, 5_000);
+
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [
+    deleteConfirm,
+    editingMeetingId,
+    editingMeetingParticipants,
+    personnelIdByName,
+    showNewMeetingModal,
+  ]);
 
   const filteredMeetings = filterType === "ALL"
     ? meetings.filter(m => !showHistoryMeetings ? m.status !== "已结束" : true)
@@ -367,7 +445,8 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
   const handleTypeChange = (type: MeetingType) => {
     setNewMeeting({
       ...newMeeting,
-      type,
+      type: type === "临时股东会" ? "股东会" : type,
+      nature: type === "临时股东会" ? "临时" : newMeeting.nature || "定期",
       threshold: meetingThresholds[type]?.threshold || "",
     });
   };
@@ -382,24 +461,56 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
   };
 
   // 创建新会议
-  const handleCreateMeeting = () => {
+  const handleCreateMeeting = async () => {
     if (!newMeeting.title || !newMeeting.date) return;
 
-    const newMeetingData: Meeting = {
-      id: Date.now().toString(),
-      title: newMeeting.title,
-      type: newMeeting.type as MeetingType,
-      date: newMeeting.date,
-      status: "筹备中",
-      complianceScore: 100,
-      notifiedDays: 0,
-      participants: newMeeting.participants || [],
-      threshold: meetingThresholds[newMeeting.type as string]?.threshold || "",
-    };
-
-    setMeetings([newMeetingData, ...meetings]);
-    setShowNewMeetingModal(false);
-    setNewMeeting({ type: "股东会", status: "筹备中", participants: [], threshold: "" });
+    setSyncStatus("saving");
+    setSyncMessage("正在保存到飞书");
+    try {
+      const participantNames = (newMeeting.participants || [])
+        .map((id) => personnelList.find((person) => person.id === id)?.name)
+        .filter((name): name is string => Boolean(name));
+      const result = await createMeetingInFeishu({
+        title: newMeeting.title,
+        type: newMeeting.type as MeetingType,
+        nature: newMeeting.nature,
+        date: newMeeting.date,
+        startTime: newMeeting.startTime,
+        location: newMeeting.location,
+        noticeDate: newMeeting.noticeDate,
+        meetingMode: newMeeting.meetingMode,
+        votingMethod: newMeeting.votingMethod,
+        expectedAttendance: newMeeting.expectedAttendance,
+        actualAttendance: newMeeting.actualAttendance,
+        contactName: newMeeting.contactName,
+        contactPhone: newMeeting.contactPhone,
+        contactEmail: newMeeting.contactEmail,
+        status: "筹备中",
+        participantNames,
+      });
+      const saved = toFrontendMeeting(result.meeting, personnelIdByName);
+      setMeetings((current) => [saved, ...current.filter((meeting) => meeting.id !== saved.id)]);
+      setShowNewMeetingModal(false);
+      setNewMeeting({
+        type: "股东会",
+        nature: "定期",
+        status: "筹备中",
+        participants: [],
+        threshold: "",
+        meetingMode: "现场",
+        votingMethod: "现场投票",
+      });
+      setSyncStatus("synced");
+      setSyncMessage(
+        result.meeting.pendingFields?.length
+          ? `已保存；待飞书增加字段：${result.meeting.pendingFields.join("、")}`
+          : "已保存到飞书",
+      );
+    } catch (error) {
+      setSyncStatus("error");
+      setSyncMessage(error instanceof Error ? error.message : "保存失败");
+      alert(error instanceof Error ? error.message : "会议没有保存到飞书");
+    }
   };
 
   // 打开编辑与会人员弹窗
@@ -424,14 +535,27 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
   };
 
   // 保存与会人员
-  const saveParticipants = () => {
+  const saveParticipants = async () => {
     if (!editingMeetingParticipants) return;
-    setMeetings(meetings.map(m =>
-      m.id === editingMeetingParticipants.meetingId
-        ? { ...m, participants: editingMeetingParticipants.participants }
-        : m
-    ));
-    setEditingMeetingParticipants(null);
+    setSyncStatus("saving");
+    setSyncMessage("正在保存参会人员");
+    try {
+      const participantNames = editingMeetingParticipants.participants
+        .map((id) => personnelList.find((person) => person.id === id)?.name)
+        .filter((name): name is string => Boolean(name));
+      const result = await updateMeetingInFeishu(editingMeetingParticipants.meetingId, {
+        participantNames,
+      });
+      const saved = toFrontendMeeting(result.meeting, personnelIdByName);
+      setMeetings((current) => current.map((meeting) => meeting.id === saved.id ? saved : meeting));
+      setEditingMeetingParticipants(null);
+      setSyncStatus("synced");
+      setSyncMessage("参会人员已保存到飞书");
+    } catch (error) {
+      setSyncStatus("error");
+      setSyncMessage(error instanceof Error ? error.message : "参会人员保存失败");
+      alert(error instanceof Error ? error.message : "参会人员没有保存到飞书");
+    }
   };
 
   // 开始编辑会议标题
@@ -441,13 +565,23 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
   };
 
   // 保存编辑后的会议标题
-  const saveMeetingTitle = () => {
+  const saveMeetingTitle = async () => {
     if (!editingMeetingId) return;
-    setMeetings(meetings.map(m =>
-      m.id === editingMeetingId ? { ...m, title: editingTitle } : m
-    ));
-    setEditingMeetingId(null);
-    setEditingTitle("");
+    setSyncStatus("saving");
+    setSyncMessage("正在保存会议标题");
+    try {
+      const result = await updateMeetingInFeishu(editingMeetingId, { title: editingTitle.trim() });
+      const saved = toFrontendMeeting(result.meeting, personnelIdByName);
+      setMeetings((current) => current.map((meeting) => meeting.id === saved.id ? saved : meeting));
+      setEditingMeetingId(null);
+      setEditingTitle("");
+      setSyncStatus("synced");
+      setSyncMessage("会议标题已保存到飞书");
+    } catch (error) {
+      setSyncStatus("error");
+      setSyncMessage(error instanceof Error ? error.message : "标题保存失败");
+      alert(error instanceof Error ? error.message : "会议标题没有保存到飞书");
+    }
   };
 
   // 取消编辑会议标题
@@ -457,10 +591,21 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
   };
 
   // 删除会议
-  const deleteMeeting = () => {
+  const deleteMeeting = async () => {
     if (!deleteConfirm) return;
-    setMeetings(meetings.filter(m => m.id !== deleteConfirm.meetingId));
-    setDeleteConfirm(null);
+    setSyncStatus("saving");
+    setSyncMessage("正在从飞书删除会议");
+    try {
+      await deleteMeetingFromFeishu(deleteConfirm.meetingId);
+      setMeetings((current) => current.filter((meeting) => meeting.id !== deleteConfirm.meetingId));
+      setDeleteConfirm(null);
+      setSyncStatus("synced");
+      setSyncMessage("已从飞书删除");
+    } catch (error) {
+      setSyncStatus("error");
+      setSyncMessage(error instanceof Error ? error.message : "删除失败");
+      alert(error instanceof Error ? error.message : "会议没有从飞书删除");
+    }
   };
 
   // 发送邮件通知
@@ -484,11 +629,23 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
     setShowNotifyAllSuccess(true);
   };
 
+  const newMeetingThresholdKey =
+    newMeeting.type === "股东会" && newMeeting.nature === "临时"
+      ? "临时股东会"
+      : newMeeting.type || "股东会";
+
   return (
     <div className="space-y-8">
       <header className="flex items-center justify-between">
         <div>
           <h2 className="text-3xl font-serif font-bold text-mck-navy">会议管理</h2>
+          <div className={cn(
+            "mt-2 text-[10px] font-bold tracking-wider",
+            syncStatus === "error" ? "text-mck-red" : syncStatus === "synced" ? "text-green-600" : "text-mck-blue",
+          )}>
+            {syncStatus === "saving" || syncStatus === "connecting" ? "● " : syncStatus === "synced" ? "✓ " : "⚠ "}
+            {syncMessage}
+          </div>
         </div>
         <button 
           onClick={() => setShowNewMeetingModal(true)}
@@ -511,6 +668,11 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
             </div>
 
             <div className="space-y-6">
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-800">
+                飞书尚未创建的新字段会列在保存结果中，并暂不写入飞书；会议标题、类型、日期、状态和参会人员仍可正常保存。
+                飞书字段补齐后，这些扩展信息会自动开始同步。
+              </div>
+
               {/* 会议标题 */}
               <div className="space-y-2">
                 <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/40">会议标题</label>
@@ -523,37 +685,173 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
                 />
               </div>
 
-              {/* 会议类型 */}
-              <div className="space-y-2">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/40">会议类型</label>
-                <select
-                  value={newMeeting.type || "股东会"}
-                  onChange={e => handleTypeChange(e.target.value as MeetingType)}
-                  className="w-full border border-mck-border px-4 py-2 text-sm focus:outline-none focus:border-mck-blue bg-white"
-                >
-                  {Object.keys(meetingThresholds).map(type => (
-                    <option key={type} value={type}>{type}</option>
-                  ))}
-                </select>
-                {/* 门槛说明 */}
-                <div className="mt-2 p-3 bg-mck-bg/50 rounded-lg border border-mck-border/50">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-[10px] font-bold text-mck-blue uppercase">门槛要求</span>
-                  </div>
-                  <p className="text-sm font-medium text-mck-navy">{meetingThresholds[newMeeting.type as string]?.threshold}</p>
-                  <p className="text-[10px] text-mck-navy/50 mt-1">{meetingThresholds[newMeeting.type as string]?.description}</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/40">会议类型</label>
+                  <select
+                    value={newMeeting.type || "股东会"}
+                    onChange={e => handleTypeChange(e.target.value as MeetingType)}
+                    className="w-full border border-mck-border px-4 py-2 text-sm focus:outline-none focus:border-mck-blue bg-white"
+                  >
+                    {["股东会", "董事会", "监事会"].map(type => (
+                      <option key={type} value={type}>{type}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/40">会议性质</label>
+                  <select
+                    value={newMeeting.nature || "定期"}
+                    onChange={e => setNewMeeting({ ...newMeeting, nature: e.target.value as Meeting["nature"] })}
+                    className="w-full border border-mck-border px-4 py-2 text-sm focus:outline-none focus:border-mck-blue bg-white"
+                  >
+                    <option value="定期">定期</option>
+                    <option value="临时">临时</option>
+                  </select>
                 </div>
               </div>
 
-              {/* 会议日期 */}
-              <div className="space-y-2">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/40">会议日期</label>
-                <input
-                  type="date"
-                  value={newMeeting.date || ""}
-                  onChange={e => setNewMeeting({ ...newMeeting, date: e.target.value })}
-                  className="w-full border border-mck-border px-4 py-2 text-sm focus:outline-none focus:border-mck-blue"
-                />
+              <div className="p-3 bg-mck-bg/50 rounded-lg border border-mck-border/50">
+                {/* 门槛说明 */}
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-[10px] font-bold text-mck-blue uppercase">门槛要求</span>
+                </div>
+                <p className="text-sm font-medium text-mck-navy">{meetingThresholds[newMeetingThresholdKey]?.threshold}</p>
+                <p className="text-[10px] text-mck-navy/50 mt-1">{meetingThresholds[newMeetingThresholdKey]?.description}</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/40">会议日期</label>
+                  <input
+                    type="date"
+                    value={newMeeting.date || ""}
+                    onChange={e => setNewMeeting({ ...newMeeting, date: e.target.value })}
+                    className="w-full border border-mck-border px-4 py-2 text-sm focus:outline-none focus:border-mck-blue"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/40">开始时间</label>
+                  <input
+                    type="time"
+                    value={newMeeting.startTime || ""}
+                    onChange={e => setNewMeeting({ ...newMeeting, startTime: e.target.value })}
+                    className="w-full border border-mck-border px-4 py-2 text-sm focus:outline-none focus:border-mck-blue"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/40">会议地点</label>
+                  <input
+                    type="text"
+                    value={newMeeting.location || ""}
+                    onChange={e => setNewMeeting({ ...newMeeting, location: e.target.value })}
+                    className="w-full border border-mck-border px-4 py-2 text-sm focus:outline-none focus:border-mck-blue"
+                    placeholder="例如：公司第一会议室"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/40">通知日期</label>
+                  <input
+                    type="date"
+                    value={newMeeting.noticeDate || ""}
+                    onChange={e => setNewMeeting({ ...newMeeting, noticeDate: e.target.value })}
+                    className="w-full border border-mck-border px-4 py-2 text-sm focus:outline-none focus:border-mck-blue"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/40">召开方式</label>
+                  <select
+                    value={newMeeting.meetingMode || "现场"}
+                    onChange={e => setNewMeeting({ ...newMeeting, meetingMode: e.target.value as Meeting["meetingMode"] })}
+                    className="w-full border border-mck-border px-4 py-2 text-sm bg-white"
+                  >
+                    {["现场", "视频", "通讯", "现场加通讯", "其他"].map(value => <option key={value}>{value}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/40">表决方式</label>
+                  <select
+                    value={newMeeting.votingMethod || "现场投票"}
+                    onChange={e => setNewMeeting({ ...newMeeting, votingMethod: e.target.value as Meeting["votingMethod"] })}
+                    className="w-full border border-mck-border px-4 py-2 text-sm bg-white"
+                  >
+                    {["现场投票", "通讯表决", "举手表决", "其他"].map(value => <option key={value}>{value}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/40">应到人数</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={newMeeting.expectedAttendance ?? ""}
+                    onChange={e => setNewMeeting({
+                      ...newMeeting,
+                      expectedAttendance: e.target.value === "" ? undefined : Number(e.target.value),
+                    })}
+                    className="w-full border border-mck-border px-4 py-2 text-sm"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/40">实到人数</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={newMeeting.actualAttendance ?? ""}
+                    onChange={e => setNewMeeting({
+                      ...newMeeting,
+                      actualAttendance: e.target.value === "" ? undefined : Number(e.target.value),
+                    })}
+                    className="w-full border border-mck-border px-4 py-2 text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/40">会务联系人</label>
+                  <select
+                    value={newMeeting.contactName || ""}
+                    onChange={e => {
+                      const person = personnelList.find(item => item.name === e.target.value);
+                      setNewMeeting({
+                        ...newMeeting,
+                        contactName: e.target.value,
+                        contactPhone: person?.phone || newMeeting.contactPhone,
+                        contactEmail: person?.email || newMeeting.contactEmail,
+                      });
+                    }}
+                    className="w-full border border-mck-border px-3 py-2 text-sm bg-white"
+                  >
+                    <option value="">请选择</option>
+                    {personnelList.map(person => <option key={person.id} value={person.name}>{person.name}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/40">联系电话</label>
+                  <input
+                    value={newMeeting.contactPhone || ""}
+                    onChange={e => setNewMeeting({ ...newMeeting, contactPhone: e.target.value })}
+                    className="w-full border border-mck-border px-3 py-2 text-sm"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/40">联系邮箱</label>
+                  <input
+                    type="email"
+                    value={newMeeting.contactEmail || ""}
+                    onChange={e => setNewMeeting({ ...newMeeting, contactEmail: e.target.value })}
+                    className="w-full border border-mck-border px-3 py-2 text-sm"
+                  />
+                </div>
               </div>
 
               {/* 与会人员 */}
@@ -1106,7 +1404,7 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
                               recipientEmail: person.email || '',
                               senderName: getLegalContactName(),
                               meetingDate: meeting?.date || '',
-                              meetingTime: meeting?.time || '',
+                              meetingTime: meeting?.startTime || '',
                               meetingLocation: meeting?.location || '公司会议室'
                             }
                           });
@@ -1175,7 +1473,7 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
                           recipientEmail: '',
                           senderName: getLegalContactName(),
                           meetingDate: meeting?.date || '',
-                          meetingTime: meeting?.time || '',
+                          meetingTime: meeting?.startTime || '',
                           meetingLocation: meeting?.location || '公司会议室'
                         }
                       });

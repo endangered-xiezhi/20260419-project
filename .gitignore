@@ -4,3 +4,6 @@ node_modules
 .env.*.local
 dist
 uploads
+.DS_Store
+**/.DS_Store
+.tmp/

@@ -2,6 +2,8 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import { FileText, Download, Printer, Check, Edit3, Save, X, FileCheck, Plus, ChevronDown, ChevronRight, FolderOpen, Eye, Clock, History, Sparkles, File, Loader2, AlertCircle, Trash2, Users, Calendar, FileDown, Mail, Send, Undo2, ShieldCheck, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { generateWordDocument, generateRegulationWord } from "@/utils/documentGenerator";
+import { downloadMeetingPackage, requestMeetingPackage, type MeetingPackageType } from "@/services/meetingPackage";
+import { getMeetingFromFeishu } from "@/services/feishuMeetings";
 
 // 一级分类类型：会议文件 / 制度文件
 type DocumentLevel1Category = 'meeting' | 'regulation';
@@ -280,6 +282,39 @@ const boardTemplates: DocumentTemplate[] = [
   { id: 'board_notice', name: '董事会会议通知' },
 ];
 
+const supervisorTemplates: DocumentTemplate[] = [
+  { id: 'supervisor_notice', name: '监事会会议通知' },
+  { id: 'supervisor_signin', name: '监事会签到表' },
+  { id: 'supervisor_voting', name: '监事会表决票' },
+  { id: 'supervisor_resolution', name: '监事会决议' },
+  { id: 'supervisor_minutes', name: '监事会会议记录' },
+  { id: 'supervisor_proposal', name: '监事会议案' },
+];
+
+const documentTypeMeetingType: Record<string, MeetingPackageType> = {
+  voting: 'shareholder',
+  voting_stats: 'shareholder',
+  agenda: 'shareholder',
+  minutes: 'shareholder',
+  notice: 'shareholder',
+  resolution: 'shareholder',
+  signin: 'shareholder',
+  proxy: 'shareholder',
+  proposal: 'shareholder',
+  board_proposal: 'board',
+  board_voting: 'board',
+  board_minutes: 'board',
+  board_resolution: 'board',
+  board_signin: 'board',
+  board_notice: 'board',
+  supervisor_notice: 'supervisor',
+  supervisor_signin: 'supervisor',
+  supervisor_voting: 'supervisor',
+  supervisor_resolution: 'supervisor',
+  supervisor_minutes: 'supervisor',
+  supervisor_proposal: 'supervisor',
+};
+
 // 历史会议标题
 const getMeetingHistory = (): string[] => {
   const saved = localStorage.getItem("corporate_meeting_titles");
@@ -478,29 +513,6 @@ const downloadDocument = (doc: GeneratedDocument) => {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-};
-
-// 筹备中弹窗组件
-const ComingSoonModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      onClose();
-    }, 2000);
-    return () => clearTimeout(timer);
-  }, [onClose]);
-
-  return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center">
-      <div className="bg-white rounded-2xl p-8 max-w-sm w-full mx-4 text-center shadow-2xl animate-pulse">
-        <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-4">
-          <Clock size={32} className="text-orange-500" />
-        </div>
-        <h3 className="text-xl font-bold text-mck-navy mb-2">正在筹备中</h3>
-        <p className="text-sm text-mck-navy/60">敬请期待更多功能上线</p>
-        <p className="text-xs text-mck-navy/40 mt-4">即将自动关闭...</p>
-      </div>
-    </div>
-  );
 };
 
 // 表单输入组件
@@ -1505,6 +1517,7 @@ export const DocumentCenter: React.FC<DocumentCenterProps> = ({ meetingId, editE
   const [level2Category, setLevel2Category] = useState<MeetingCategory | RegulationCategory | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<DocumentTemplate | null>(null);
   const [meetingTitle, setMeetingTitle] = useState('');
+  const [meetingSyncHint, setMeetingSyncHint] = useState('');
   const [meetingHistory, setMeetingHistory] = useState<string[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [expandedTemplates, setExpandedTemplates] = useState(false);
@@ -1519,8 +1532,8 @@ export const DocumentCenter: React.FC<DocumentCenterProps> = ({ meetingId, editE
     return saved ? JSON.parse(saved) : [];
   });
   const [previewDoc, setPreviewDoc] = useState<GeneratedDocument | null>(null);
-  const [showComingSoon, setShowComingSoon] = useState(false);
   const [formTemplate, setFormTemplate] = useState<DocumentTemplate | null>(null);
+  const [packageBusyKey, setPackageBusyKey] = useState<string | null>(null);
   // 制度文件编辑弹窗状态
   const [showRegulationEditor, setShowRegulationEditor] = useState(false);
   const [regulationEditContent, setRegulationEditContent] = useState('');
@@ -1541,6 +1554,32 @@ export const DocumentCenter: React.FC<DocumentCenterProps> = ({ meetingId, editE
     const saved = localStorage.getItem("corporate_imported_rule_docs");
     return saved ? JSON.parse(saved) : [];
   });
+
+  useEffect(() => {
+    let active = true;
+    if (!meetingId?.startsWith("rec")) {
+      setMeetingSyncHint("");
+      return () => {
+        active = false;
+      };
+    }
+
+    setMeetingSyncHint("正在读取飞书会议");
+    getMeetingFromFeishu(meetingId)
+      .then(({ meeting }) => {
+        if (!active) return;
+        setMeetingTitle(meeting.title);
+        setMeetingSyncHint(`已载入飞书会议：${meeting.title}`);
+      })
+      .catch((error) => {
+        if (!active) return;
+        setMeetingSyncHint(error instanceof Error ? error.message : "飞书会议读取失败");
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [meetingId]);
 
   // 监听合规审查完成事件，更新审查结果
   useEffect(() => {
@@ -1770,10 +1809,6 @@ ${new Date().toLocaleDateString('zh-CN')}`,
 
   // 处理二级分类选择（会议文件分支）
   const handleMeetingCategorySelect = (category: MeetingCategory) => {
-    if (category === 'supervisor') {
-      setShowComingSoon(true);
-      return;
-    }
     setLevel2Category(category);
     setSelectedTemplate(null);
   };
@@ -2042,7 +2077,6 @@ ${new Date().toLocaleDateString('zh-CN')}`,
     if (!formTemplate) return;
 
     // 根据文书模板id判断会议类型
-    const isBoardTemplate = formTemplate.id.startsWith('board_');
     const isRegulationTemplate = regulationTemplates.some(t => t.id === formTemplate.id);
 
     if (isRegulationTemplate) {
@@ -2065,7 +2099,7 @@ ${new Date().toLocaleDateString('zh-CN')}`,
     } else {
       // 会议文件生成
       if (!meetingTitle.trim()) return;
-      const meetingType: 'shareholder' | 'board' | 'supervisor' = isBoardTemplate ? 'board' : 'shareholder';
+      const meetingType = documentTypeMeetingType[formTemplate.id] || 'shareholder';
 
       const newDoc: GeneratedDocument = {
         id: `doc-${Date.now()}-${formTemplate.id}`,
@@ -2092,6 +2126,73 @@ ${new Date().toLocaleDateString('zh-CN')}`,
   const handleSelectHistory = (title: string) => {
     setMeetingTitle(title);
     setShowHistory(false);
+  };
+
+  const collectMeetingPackageValues = (docs: GeneratedDocument[]) => {
+    const formItems = docs.map(doc => doc.formData || {});
+    const firstValue = (...keys: string[]) => {
+      for (const data of formItems) {
+        for (const key of keys) {
+          const value = data[key];
+          if (value !== undefined && value !== null && String(value).trim()) return value;
+        }
+      }
+      return undefined;
+    };
+    const attendees = formItems
+      .flatMap(data => Array.isArray(data.attendees) ? data.attendees : [])
+      .map(attendee => attendee?.name)
+      .filter(Boolean)
+      .join('、');
+
+    return {
+      '公司主体表.公司名称': firstValue('companyName'),
+      '会议表.时间|日期': firstValue('meetingDate'),
+      '会议表.时间|时间': firstValue('meetingTime'),
+      '会议表.会议地点': firstValue('meetingLocation', 'location'),
+      '会议表.主持人': firstValue('hostName', 'chairmanName'),
+      '会议表.记录人': firstValue('recorderName'),
+      '会议表.会务联系人': firstValue('contactName'),
+      '会议表.会务联系电话': firstValue('contactPhone'),
+      '会议表.会务邮箱': firstValue('contactEmail'),
+      '会议表.参会人员': attendees || undefined,
+      '人员汇总.应到人数': firstValue('expectedAttendeeCount', 'requiredCount'),
+      '人员汇总.实到人数': firstValue('attendeeCount', 'actualCount'),
+      '股东汇总.股东总数': firstValue('totalShareholders'),
+      '股东汇总.出席股份比例': firstValue('shareholderRatio', 'votingRatio'),
+      '股东汇总.出席表决权股份数': firstValue('representedShares'),
+      '议案表.议案标题': firstValue('proposalTitle'),
+      '议案表.议案正文': firstValue('proposalContent', 'resolutionContent'),
+    };
+  };
+
+  const handleDownloadFullPackage = async (
+    title: string,
+    meetingType: MeetingPackageType,
+    docs: GeneratedDocument[] = [],
+  ) => {
+    if (!title.trim()) {
+      alert('请先输入会议标题');
+      return;
+    }
+
+    const busyKey = `${meetingType}:${title}`;
+    setPackageBusyKey(busyKey);
+    try {
+      const result = await requestMeetingPackage({
+        meetingId,
+        meetingTitle: title.trim(),
+        meetingType,
+        values: collectMeetingPackageValues(docs),
+      });
+      saveMeetingTitle(title.trim());
+      setMeetingHistory(getMeetingHistory());
+      downloadMeetingPackage(result.downloadUrl);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : '生成会议档案失败');
+    } finally {
+      setPackageBusyKey(null);
+    }
   };
 
   const handleDownload = async (doc: GeneratedDocument) => {
@@ -2203,21 +2304,6 @@ ${new Date().toLocaleDateString('zh-CN')}`,
 
     return groups;
   }, [generatedDocs, emails]);
-
-  // 文书类型选项
-
-  // 会议类型映射
-  const docTypeToMeetingType: Record<string, 'shareholder' | 'board' | 'supervisor'> = {
-    voting: 'shareholder',
-    voting_stats: 'shareholder',
-    agenda: 'shareholder',
-    minutes: 'shareholder',
-    notice: 'shareholder',
-    resolution: 'shareholder',
-    signin: 'shareholder',
-    proxy: 'shareholder',
-    proposal: 'shareholder',
-  };
 
   // 文书导入弹窗状态
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -2600,8 +2686,6 @@ ${email.body}`;
 
   return (
     <div className="space-y-6">
-      {showComingSoon && <ComingSoonModal onClose={() => setShowComingSoon(false)} />}
-
       {/* 文书导入弹窗 */}
       {showImporter && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -3074,6 +3158,16 @@ ${email.body}`;
       <header className="flex items-center justify-between">
         <div>
           <h2 className="text-3xl font-serif font-bold text-mck-navy">文书中心</h2>
+          {meetingSyncHint && (
+            <p className={cn(
+              "mt-2 text-[10px] font-bold tracking-wider",
+              meetingSyncHint.includes("失败") || meetingSyncHint.includes("尚未部署")
+                ? "text-mck-red"
+                : "text-green-600",
+            )}>
+              {meetingSyncHint}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-3">
           <button 
@@ -3241,6 +3335,22 @@ ${email.body}`;
                     </button>
                   ))}
                 </div>
+                <button
+                  onClick={() => handleDownloadFullPackage(
+                    meetingTitle,
+                    'shareholder',
+                    generatedDocs.filter(doc => doc.meetingTitle === meetingTitle),
+                  )}
+                  disabled={!meetingTitle.trim() || packageBusyKey !== null}
+                  className="mt-4 w-full flex items-center justify-center gap-2 rounded-lg bg-mck-navy px-4 py-3 text-sm font-bold text-white transition hover:bg-mck-blue disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {packageBusyKey === `shareholder:${meetingTitle}` ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : (
+                    <Download size={16} />
+                  )}
+                  一键生成并下载全套 9 份 Word
+                </button>
                 {!meetingTitle.trim() && (
                   <p className="text-xs text-mck-navy/40 mt-3 text-center">
                     请先输入会议标题后再生成文书
@@ -3320,6 +3430,76 @@ ${email.body}`;
                     </button>
                   ))}
                 </div>
+                <button
+                  onClick={() => handleDownloadFullPackage(
+                    meetingTitle,
+                    'board',
+                    generatedDocs.filter(doc => doc.meetingTitle === meetingTitle),
+                  )}
+                  disabled={!meetingTitle.trim() || packageBusyKey !== null}
+                  className="mt-4 w-full flex items-center justify-center gap-2 rounded-lg bg-mck-navy px-4 py-3 text-sm font-bold text-white transition hover:bg-mck-blue disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {packageBusyKey === `board:${meetingTitle}` ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : (
+                    <Download size={16} />
+                  )}
+                  一键生成并下载全套 6 份 Word
+                </button>
+                {!meetingTitle.trim() && (
+                  <p className="text-xs text-mck-navy/40 mt-3 text-center">
+                    请先输入会议标题后再生成文书
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {level1Category === 'meeting' && level2Category === 'supervisor' && (
+            <div className="animate-in fade-in duration-300">
+              <div className="mb-6">
+                <h4 className="text-xs font-bold uppercase tracking-widest text-mck-navy/60 mb-3">
+                  会议标题
+                </h4>
+                <input
+                  type="text"
+                  value={meetingTitle}
+                  onChange={(e) => setMeetingTitle(e.target.value)}
+                  placeholder="XX公司第一届监事会第X次会议"
+                  className="w-full px-4 py-3 border border-mck-border rounded-lg focus:outline-none focus:border-mck-blue text-sm"
+                />
+              </div>
+
+              <div>
+                <h4 className="text-xs font-bold uppercase tracking-widest text-mck-navy/60 mb-3">
+                  全套文书
+                </h4>
+                <div className="grid grid-cols-3 gap-3">
+                  {supervisorTemplates.map(template => (
+                    <div
+                      key={template.id}
+                      className="p-4 border border-mck-border rounded-lg text-center bg-mck-bg/20"
+                    >
+                      <span className="text-sm font-medium text-mck-navy">{template.name}</span>
+                    </div>
+                  ))}
+                </div>
+                <button
+                  onClick={() => handleDownloadFullPackage(
+                    meetingTitle,
+                    'supervisor',
+                    generatedDocs.filter(doc => doc.meetingTitle === meetingTitle),
+                  )}
+                  disabled={!meetingTitle.trim() || packageBusyKey !== null}
+                  className="mt-4 w-full flex items-center justify-center gap-2 rounded-lg bg-mck-navy px-4 py-3 text-sm font-bold text-white transition hover:bg-mck-blue disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {packageBusyKey === `supervisor:${meetingTitle}` ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : (
+                    <Download size={16} />
+                  )}
+                  一键生成并下载全套 6 份 Word
+                </button>
                 {!meetingTitle.trim() && (
                   <p className="text-xs text-mck-navy/40 mt-3 text-center">
                     请先输入会议标题后再生成文书
@@ -3399,6 +3579,10 @@ ${email.body}`;
             {Object.entries(groupedByMeeting).map(([meetingTitle, { docs, emails: meetingEmails }]) => {
               const totalItems = docs.length + meetingEmails.length;
               if (totalItems === 0) return null;
+              const packageMeetingType: MeetingPackageType =
+                docs.find(doc => doc.meetingType)?.meetingType ||
+                documentTypeMeetingType[docs[0]?.type] ||
+                'shareholder';
               
               return (
                 <div key={meetingTitle} className="border border-mck-border rounded">
@@ -3412,6 +3596,21 @@ ${email.body}`;
                       <span>{docs.length}份文书</span>
                       <span>|</span>
                       <span>{meetingEmails.length}封邮件</span>
+                      {docs.length > 0 && meetingTitle !== 'undefined' && (
+                        <button
+                          onClick={() => handleDownloadFullPackage(meetingTitle, packageMeetingType, docs)}
+                          disabled={packageBusyKey !== null}
+                          className="ml-2 flex items-center gap-1 rounded bg-white/15 px-2 py-1 font-bold text-white hover:bg-white/25 disabled:cursor-not-allowed disabled:opacity-50"
+                          title="生成该会议的全套 Word 并下载 ZIP"
+                        >
+                          {packageBusyKey === `${packageMeetingType}:${meetingTitle}` ? (
+                            <Loader2 size={11} className="animate-spin" />
+                          ) : (
+                            <Download size={11} />
+                          )}
+                          下载全套
+                        </button>
+                      )}
                       {meetingTitle === 'undefined' && (
                         <button
                           onClick={() => handleDeleteMeeting(meetingTitle)}

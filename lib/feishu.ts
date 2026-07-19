@@ -21,6 +21,46 @@ type FeishuTableListResponse = {
   };
 };
 
+export type FeishuRecord = {
+  record_id: string;
+  fields: Record<string, unknown>;
+  created_time?: number;
+  last_modified_time?: number;
+};
+
+type FeishuRecordListResponse = {
+  code?: number;
+  msg?: string;
+  data?: {
+    items?: FeishuRecord[];
+    has_more?: boolean;
+    page_token?: string;
+    total?: number;
+  };
+};
+
+type FeishuRecordResponse = {
+  code?: number;
+  msg?: string;
+  data?: {
+    record?: FeishuRecord;
+  };
+};
+
+type FeishuFieldListResponse = {
+  code?: number;
+  msg?: string;
+  data?: {
+    items?: Array<{
+      field_id: string;
+      field_name: string;
+      type: number;
+    }>;
+    has_more?: boolean;
+    page_token?: string;
+  };
+};
+
 type FeishuWikiNodeResponse = {
   code?: number;
   msg?: string;
@@ -36,6 +76,7 @@ type FeishuWikiNodeResponse = {
 
 let tokenCache: { token: string; expiresAt: number } | null = null;
 let wikiTokenCache: { inputToken: string; appToken: string } | null = null;
+const fieldNameCache = new Map<string, { names: Set<string>; expiresAt: number }>();
 
 function requiredEnv(name: "FEISHU_APP_ID" | "FEISHU_APP_SECRET" | "FEISHU_BASE_APP_TOKEN" | "FEISHU_WIKI_TOKEN") {
   const value = process.env[name]?.trim();
@@ -95,6 +136,29 @@ async function feishuGet<T>(path: string, token: string) {
   };
 }
 
+async function feishuRequest<T>(
+  path: string,
+  token: string,
+  init: RequestInit = {},
+) {
+  const response = await fetch(`${FEISHU_API_BASE}${path}`, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json; charset=utf-8",
+      ...init.headers,
+    },
+  });
+  const text = await response.text();
+  const result = (text ? JSON.parse(text) : {}) as T & { code?: number; msg?: string };
+
+  if (!response.ok || (typeof result.code === "number" && result.code !== 0)) {
+    const code = typeof result.code === "number" ? `（飞书错误码 ${result.code}）` : "";
+    throw new Error(`${result.msg || `飞书接口请求失败，HTTP ${response.status}`}${code}`);
+  }
+  return result;
+}
+
 async function tryResolveWikiTokenToBitableAppToken(inputToken: string, token: string) {
   if (wikiTokenCache?.inputToken === inputToken) {
     return wikiTokenCache.appToken;
@@ -119,6 +183,9 @@ async function tryResolveWikiTokenToBitableAppToken(inputToken: string, token: s
 }
 
 async function getBitableAppToken(token: string) {
+  const configuredBaseToken = process.env.FEISHU_BASE_APP_TOKEN?.trim();
+  if (configuredBaseToken) return configuredBaseToken;
+
   const configuredWikiToken = process.env.FEISHU_WIKI_TOKEN?.trim();
 
   if (configuredWikiToken) {
@@ -129,9 +196,7 @@ async function getBitableAppToken(token: string) {
     return resolvedToken;
   }
 
-  const inputToken = requiredEnv("FEISHU_BASE_APP_TOKEN");
-  const resolvedToken = await tryResolveWikiTokenToBitableAppToken(inputToken, token);
-  return resolvedToken || inputToken;
+  return requiredEnv("FEISHU_BASE_APP_TOKEN");
 }
 
 export async function listFeishuTables() {
@@ -146,4 +211,455 @@ export async function listFeishuTables() {
     throw new Error(result.msg || "无法读取飞书多维表格");
   }
   return result.data?.items || [];
+}
+
+async function getBitableContext() {
+  const token = await getTenantAccessToken();
+  const appToken = await getBitableAppToken(token);
+  return { token, appToken };
+}
+
+async function resolveTableId(
+  token: string,
+  appToken: string,
+  envName: string,
+  acceptedNames: string[],
+) {
+  const configured = process.env[envName]?.trim();
+  if (configured) return configured;
+
+  const { result, ok } = await feishuGet<FeishuTableListResponse>(
+    `/bitable/v1/apps/${encodeURIComponent(appToken)}/tables?page_size=100`,
+    token,
+  );
+  if (!ok || result.code !== 0) {
+    throw new Error(result.msg || "无法读取飞书数据表");
+  }
+  const table = (result.data?.items || []).find((item) => acceptedNames.includes(item.name.trim()));
+  if (!table) {
+    throw new Error(`没有找到数据表“${acceptedNames[0]}”，请在 Render 配置 ${envName}`);
+  }
+  return table.table_id;
+}
+
+async function listRecordsByTableId(
+  token: string,
+  appToken: string,
+  tableId: string,
+) {
+  const records: FeishuRecord[] = [];
+  let pageToken = "";
+
+  do {
+    const query = new URLSearchParams({ page_size: "500" });
+    if (pageToken) query.set("page_token", pageToken);
+    const result = await feishuRequest<FeishuRecordListResponse>(
+      `/bitable/v1/apps/${encodeURIComponent(appToken)}/tables/${encodeURIComponent(tableId)}/records?${query}`,
+      token,
+    );
+    records.push(...(result.data?.items || []));
+    pageToken = result.data?.has_more ? result.data.page_token || "" : "";
+  } while (pageToken);
+
+  return records;
+}
+
+async function getTableFieldNames(token: string, appToken: string, tableId: string) {
+  const cacheKey = `${appToken}:${tableId}`;
+  const cached = fieldNameCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.names;
+
+  const names = new Set<string>();
+  let pageToken = "";
+  do {
+    const query = new URLSearchParams({ page_size: "100" });
+    if (pageToken) query.set("page_token", pageToken);
+    const result = await feishuRequest<FeishuFieldListResponse>(
+      `/bitable/v1/apps/${encodeURIComponent(appToken)}/tables/${encodeURIComponent(tableId)}/fields?${query}`,
+      token,
+    );
+    for (const field of result.data?.items || []) names.add(field.field_name);
+    pageToken = result.data?.has_more ? result.data.page_token || "" : "";
+  } while (pageToken);
+
+  fieldNameCache.set(cacheKey, { names, expiresAt: Date.now() + 60_000 });
+  return names;
+}
+
+function readableValue(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map(readableValue).filter(Boolean).join("、");
+  }
+  if (typeof value === "object") {
+    const item = value as Record<string, unknown>;
+    for (const key of ["text", "name", "en_name", "fullPhoneNum", "email", "value", "link"]) {
+      const candidate = readableValue(item[key]);
+      if (candidate) return candidate;
+    }
+  }
+  return "";
+}
+
+function relationRecordIds(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (typeof item === "string") return [item];
+    if (!item || typeof item !== "object") return [];
+    const object = item as Record<string, unknown>;
+    if (typeof object.record_id === "string") return [object.record_id];
+    if (Array.isArray(object.record_ids)) {
+      return object.record_ids.filter((id): id is string => typeof id === "string");
+    }
+    return [];
+  });
+}
+
+function dateValue(value: unknown) {
+  const formatShanghaiDate = (date: Date) => {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Shanghai",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(date);
+    const part = (type: Intl.DateTimeFormatPartTypes) =>
+      parts.find((item) => item.type === type)?.value || "";
+    return `${part("year")}-${part("month")}-${part("day")}`;
+  };
+  if (typeof value === "number") return formatShanghaiDate(new Date(value));
+  const text = readableValue(value);
+  if (!text) return "";
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+  const timestamp = Number(text);
+  if (Number.isFinite(timestamp) && timestamp > 0) {
+    return formatShanghaiDate(new Date(timestamp));
+  }
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? "" : formatShanghaiDate(parsed);
+}
+
+export type FeishuMeetingInput = {
+  title?: string;
+  type?: string;
+  nature?: string;
+  date?: string;
+  startTime?: string;
+  location?: string;
+  noticeDate?: string;
+  meetingMode?: string;
+  votingMethod?: string;
+  expectedAttendance?: number;
+  actualAttendance?: number;
+  contactName?: string;
+  contactPhone?: string;
+  contactEmail?: string;
+  minutesContent?: string;
+  status?: string;
+  participantNames?: string[];
+};
+
+export type FeishuMeeting = {
+  id: string;
+  title: string;
+  type: string;
+  nature: string;
+  date: string;
+  startTime: string;
+  location: string;
+  noticeDate: string;
+  meetingMode: string;
+  votingMethod: string;
+  expectedAttendance?: number;
+  actualAttendance?: number;
+  contactName: string;
+  contactPhone: string;
+  contactEmail: string;
+  status: string;
+  participantNames: string[];
+  pendingFields: string[];
+  fields: Record<string, unknown>;
+};
+
+export type FeishuPersonnel = {
+  id: string;
+  name: string;
+  role: string;
+  organization: string;
+  status: string;
+  phone: string;
+  email: string;
+  termStart: string;
+  termEnd: string;
+  isIndependent: boolean;
+};
+
+async function personnelDirectory(token: string, appToken: string) {
+  const personnelTableId = await resolveTableId(
+    token,
+    appToken,
+    "FEISHU_PERSON_TABLE_ID",
+    ["人员表", "人员矩阵"],
+  );
+  const records = await listRecordsByTableId(token, appToken, personnelTableId);
+  const byId = new Map<string, string>();
+  const byName = new Map<string, string>();
+
+  for (const record of records) {
+    const name = (
+      readableValue(record.fields["姓名文本"]) ||
+      readableValue(record.fields["姓名"])
+    ).trim();
+    if (!name) continue;
+    byId.set(record.record_id, name);
+    byName.set(name, record.record_id);
+  }
+  return { byId, byName };
+}
+
+export async function listFeishuPersonnel() {
+  const { token, appToken } = await getBitableContext();
+  const personnelTableId = await resolveTableId(
+    token,
+    appToken,
+    "FEISHU_PERSON_TABLE_ID",
+    ["人员表", "人员矩阵"],
+  );
+  const records = await listRecordsByTableId(token, appToken, personnelTableId);
+  return records.flatMap((record): FeishuPersonnel[] => {
+    const name = (
+      readableValue(record.fields["姓名文本"]) ||
+      readableValue(record.fields["姓名"])
+    ).trim();
+    if (!name) return [];
+    const role = readableValue(record.fields["具体职务"]) ||
+      readableValue(record.fields["角色"]) ||
+      "无";
+    const organization = readableValue(record.fields["所属机构"]) ||
+      (role.includes("董事") ? "董事会" : role.includes("监事") ? "监事会" : role.includes("股东") ? "股东" : "管理层");
+    const independent = readableValue(record.fields["独立性"]).includes("独立") &&
+      !readableValue(record.fields["独立性"]).includes("非独立");
+    return [{
+      id: record.record_id,
+      name,
+      role,
+      organization,
+      status: readableValue(record.fields["是否在任"]) || "在任",
+      phone: readableValue(record.fields["联系方式"]),
+      email: readableValue(record.fields["邮箱"]),
+      termStart: dateValue(record.fields["任职开始日期"]) || dateValue(record.fields["任期起止"]),
+      termEnd: dateValue(record.fields["任职结束日期"]),
+      isIndependent: independent,
+    }];
+  });
+}
+
+function normalizeMeeting(
+  record: FeishuRecord,
+  personnelNamesById: Map<string, string>,
+): FeishuMeeting {
+  const linkedIds = relationRecordIds(record.fields["参会人员"]);
+  const relationDisplay = linkedIds.map((id) => personnelNamesById.get(id)).filter(Boolean) as string[];
+  const contactIds = relationRecordIds(record.fields["会务联系人"]);
+  const contactDisplay = contactIds.map((id) => personnelNamesById.get(id)).filter(Boolean) as string[];
+  const directDisplay = relationDisplay.length ? [] : readableValue(record.fields["参会人员"])
+    .split(/[、,，]/)
+    .map((name) => name.trim())
+    .filter(Boolean);
+
+  const rawType = readableValue(record.fields["会议类型"]) || "董事会";
+  const nature = readableValue(record.fields["会议性质"]) ||
+    (readableValue(record.fields["主题"]).includes("临时") ? "临时" : "定期");
+  const rawStart = record.fields["会议开始时间"];
+  const startDate = dateValue(rawStart);
+  const startTime = (() => {
+    const timestamp = typeof rawStart === "number" ? rawStart : Number(readableValue(rawStart));
+    if (!Number.isFinite(timestamp) || timestamp <= 0) return "";
+    return new Intl.DateTimeFormat("zh-CN", {
+      timeZone: "Asia/Shanghai",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(new Date(timestamp));
+  })();
+  const numberValue = (value: unknown) => {
+    const number = Number(readableValue(value));
+    return Number.isFinite(number) ? number : undefined;
+  };
+
+  return {
+    id: record.record_id,
+    title: readableValue(record.fields["主题"]) || readableValue(record.fields["会议名称"]) || "未命名会议",
+    type: rawType === "股东会" && nature === "临时" ? "临时股东会" : rawType,
+    nature,
+    date: startDate || dateValue(record.fields["时间"]) || new Date().toISOString().slice(0, 10),
+    startTime,
+    location: readableValue(record.fields["会议地点"]),
+    noticeDate: dateValue(record.fields["会议通知日期"]),
+    meetingMode: readableValue(record.fields["召开方式"]),
+    votingMethod: readableValue(record.fields["表决方式"]),
+    expectedAttendance: numberValue(record.fields["应到人数"]),
+    actualAttendance: numberValue(record.fields["实到人数"]),
+    contactName: contactDisplay.join("、") || readableValue(record.fields["会务联系人"]),
+    contactPhone: readableValue(record.fields["会务联系电话"]),
+    contactEmail: readableValue(record.fields["会务邮箱"]),
+    status: readableValue(record.fields["状态"]) || "筹备中",
+    participantNames: relationDisplay.length ? relationDisplay : directDisplay,
+    pendingFields: [],
+    fields: record.fields,
+  };
+}
+
+async function meetingFields(
+  input: FeishuMeetingInput,
+  token: string,
+  appToken: string,
+  tableId: string,
+) {
+  const availableFields = await getTableFieldNames(token, appToken, tableId);
+  const fields: Record<string, unknown> = {};
+  const pendingFields: string[] = [];
+  const put = (name: string, value: unknown, optional = false) => {
+    if (value === undefined) return;
+    if (availableFields.has(name)) {
+      fields[name] = value;
+    } else if (optional) {
+      pendingFields.push(name);
+    } else {
+      throw new Error(`会议表缺少必要字段“${name}”`);
+    }
+  };
+
+  put("主题", input.title);
+  if (input.type !== undefined) {
+    put("会议类型", input.type === "临时股东会" ? "股东会" : input.type);
+    const nature = input.nature || (input.type === "临时股东会" ? "临时" : "定期");
+    put("会议性质", nature, true);
+  } else {
+    put("会议性质", input.nature, true);
+  }
+  put("状态", input.status);
+  if (input.date !== undefined) {
+    const date = new Date(`${input.date}T00:00:00+08:00`);
+    if (Number.isNaN(date.getTime())) throw new Error("会议日期格式无效");
+    put("时间", date.getTime());
+
+    if (input.startTime) {
+      const start = new Date(`${input.date}T${input.startTime}:00+08:00`);
+      if (Number.isNaN(start.getTime())) throw new Error("会议开始时间格式无效");
+      put("会议开始时间", start.getTime(), true);
+    }
+  }
+  put("会议地点", input.location, true);
+  if (input.noticeDate !== undefined) {
+    const noticeDate = new Date(`${input.noticeDate}T00:00:00+08:00`);
+    if (Number.isNaN(noticeDate.getTime())) throw new Error("会议通知日期格式无效");
+    put("会议通知日期", noticeDate.getTime(), true);
+  }
+  put("召开方式", input.meetingMode, true);
+  put("表决方式", input.votingMethod, true);
+  put("应到人数", input.expectedAttendance, true);
+  put("实到人数", input.actualAttendance, true);
+  put("会务联系电话", input.contactPhone, true);
+  put("会务邮箱", input.contactEmail, true);
+  put("会议纪要正文", input.minutesContent, true);
+
+  const namesToRecordIds = async (names: string[]) => {
+    const directory = await personnelDirectory(token, appToken);
+    const missing: string[] = [];
+    const recordIds = names.flatMap((name) => {
+      const recordId = directory.byName.get(name.trim());
+      if (!recordId) {
+        missing.push(name);
+        return [];
+      }
+      return [recordId];
+    });
+    if (missing.length) throw new Error(`人员表中没有找到：${missing.join("、")}`);
+    return recordIds;
+  };
+
+  if (input.participantNames !== undefined) {
+    put("参会人员", await namesToRecordIds(input.participantNames));
+  }
+  if (input.contactName !== undefined) {
+    if (availableFields.has("会务联系人")) {
+      put("会务联系人", input.contactName ? await namesToRecordIds([input.contactName]) : []);
+    } else {
+      pendingFields.push("会务联系人");
+    }
+  }
+  return { fields, pendingFields: [...new Set(pendingFields)] };
+}
+
+export async function listFeishuMeetings() {
+  const { token, appToken } = await getBitableContext();
+  const tableId = await resolveTableId(token, appToken, "FEISHU_MEETING_TABLE_ID", ["会议表"]);
+  const records = await listRecordsByTableId(token, appToken, tableId);
+  let namesById = new Map<string, string>();
+  try {
+    namesById = (await personnelDirectory(token, appToken)).byId;
+  } catch {
+    // 人员表尚未完成时，会议核心字段仍然可以正常读取。
+  }
+  return records.map((record) => normalizeMeeting(record, namesById));
+}
+
+export async function getFeishuMeeting(recordId: string) {
+  const { token, appToken } = await getBitableContext();
+  const tableId = await resolveTableId(token, appToken, "FEISHU_MEETING_TABLE_ID", ["会议表"]);
+  const result = await feishuRequest<FeishuRecordResponse>(
+    `/bitable/v1/apps/${encodeURIComponent(appToken)}/tables/${encodeURIComponent(tableId)}/records/${encodeURIComponent(recordId)}`,
+    token,
+  );
+  if (!result.data?.record) throw new Error("飞书没有返回该会议记录");
+  let namesById = new Map<string, string>();
+  try {
+    namesById = (await personnelDirectory(token, appToken)).byId;
+  } catch {
+    // 同上，人员关联失败不阻断会议基础信息。
+  }
+  return normalizeMeeting(result.data.record, namesById);
+}
+
+export async function createFeishuMeeting(input: FeishuMeetingInput) {
+  const { token, appToken } = await getBitableContext();
+  const tableId = await resolveTableId(token, appToken, "FEISHU_MEETING_TABLE_ID", ["会议表"]);
+  const { fields, pendingFields } = await meetingFields(input, token, appToken, tableId);
+  const result = await feishuRequest<FeishuRecordResponse>(
+    `/bitable/v1/apps/${encodeURIComponent(appToken)}/tables/${encodeURIComponent(tableId)}/records`,
+    token,
+    { method: "POST", body: JSON.stringify({ fields }) },
+  );
+  if (!result.data?.record) throw new Error("飞书没有返回新建的会议记录");
+  const meeting = await getFeishuMeeting(result.data.record.record_id);
+  meeting.pendingFields = pendingFields;
+  return meeting;
+}
+
+export async function updateFeishuMeeting(recordId: string, input: FeishuMeetingInput) {
+  const { token, appToken } = await getBitableContext();
+  const tableId = await resolveTableId(token, appToken, "FEISHU_MEETING_TABLE_ID", ["会议表"]);
+  const { fields, pendingFields } = await meetingFields(input, token, appToken, tableId);
+  await feishuRequest<FeishuRecordResponse>(
+    `/bitable/v1/apps/${encodeURIComponent(appToken)}/tables/${encodeURIComponent(tableId)}/records/${encodeURIComponent(recordId)}`,
+    token,
+    { method: "PUT", body: JSON.stringify({ fields }) },
+  );
+  const meeting = await getFeishuMeeting(recordId);
+  meeting.pendingFields = pendingFields;
+  return meeting;
+}
+
+export async function deleteFeishuMeeting(recordId: string) {
+  const { token, appToken } = await getBitableContext();
+  const tableId = await resolveTableId(token, appToken, "FEISHU_MEETING_TABLE_ID", ["会议表"]);
+  await feishuRequest(
+    `/bitable/v1/apps/${encodeURIComponent(appToken)}/tables/${encodeURIComponent(tableId)}/records/${encodeURIComponent(recordId)}`,
+    token,
+    { method: "DELETE" },
+  );
 }

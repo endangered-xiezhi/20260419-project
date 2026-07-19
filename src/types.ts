@@ -10,6 +10,17 @@ export interface Meeting {
   notifiedDays: number;
   participants?: string[];
   threshold?: string;
+  nature?: "定期" | "临时";
+  startTime?: string;
+  location?: string;
+  noticeDate?: string;
+  meetingMode?: "现场" | "视频" | "通讯" | "现场加通讯" | "其他";
+  votingMethod?: "现场投票" | "通讯表决" | "举手表决" | "其他";
+  expectedAttendance?: number;
+  actualAttendance?: number;
+  contactName?: string;
+  contactPhone?: string;
+  contactEmail?: string;
 }
 
 export interface ASRSegment {

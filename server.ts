@@ -11,7 +11,18 @@ import { dirname, join } from "path";
 import crypto from "crypto";
 import { extractDocumentPlainText, titleFromDocument } from "./lib/knowledgeExtract.js";
 import { glmChatCompletion } from "./lib/glmChat.js";
-import { getFeishuConfiguration, listFeishuTables } from "./lib/feishu.js";
+import {
+  createFeishuMeeting,
+  deleteFeishuMeeting,
+  getFeishuConfiguration,
+  getFeishuMeeting,
+  listFeishuPersonnel,
+  listFeishuMeetings,
+  listFeishuTables,
+  updateFeishuMeeting,
+  type FeishuMeetingInput,
+} from "./lib/feishu.js";
+import { createMeetingPackage, type MeetingPackageType } from "./lib/meetingPackage.js";
 
 // 腾讯云配置 - 从环境变量读取
 const TENCENT_SECRET_ID = process.env.TENCENT_SECRET_ID || "";
@@ -69,11 +80,13 @@ async function startServer() {
 
   // 创建上传目录
   const uploadsDir = join(__dirname, "uploads");
+  const meetingPackagesDir = join(uploadsDir, "meeting-packages");
   try {
     await fs.access(uploadsDir);
   } catch {
     await fs.mkdir(uploadsDir, { recursive: true });
   }
+  await fs.mkdir(meetingPackagesDir, { recursive: true });
 
   // 配置文件上传
   const storage = multer.diskStorage({
@@ -129,6 +142,222 @@ async function startServer() {
         connected: false,
         error: error instanceof Error ? error.message : "飞书连接失败",
       });
+    }
+  });
+
+  function validMeetingInput(body: unknown, requireCoreFields: boolean) {
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      throw new Error("会议数据格式错误");
+    }
+    const input = body as FeishuMeetingInput;
+    if (requireCoreFields && (!input.title?.trim() || !input.type || !input.date)) {
+      throw new Error("会议标题、会议类型和日期不能为空");
+    }
+    if (input.participantNames !== undefined && !Array.isArray(input.participantNames)) {
+      throw new Error("参会人员必须是姓名列表");
+    }
+    return input;
+  }
+
+  function feishuApiError(res: express.Response, error: unknown) {
+    const message = error instanceof Error ? error.message : "飞书数据操作失败";
+    const status = /不能为空|格式错误|日期格式|没有找到/.test(message) ? 400 : 502;
+    return res.status(status).json({ success: false, error: message });
+  }
+
+  app.get("/api/feishu/meetings", async (_req, res) => {
+    try {
+      const meetings = await listFeishuMeetings();
+      return res.json({
+        success: true,
+        meetings,
+        syncedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      return feishuApiError(res, error);
+    }
+  });
+
+  app.get("/api/feishu/personnel", async (_req, res) => {
+    try {
+      const personnel = await listFeishuPersonnel();
+      return res.json({
+        success: true,
+        personnel,
+        syncedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      return feishuApiError(res, error);
+    }
+  });
+
+  app.get("/api/feishu/meetings/:recordId", async (req, res) => {
+    try {
+      const meeting = await getFeishuMeeting(req.params.recordId);
+      return res.json({ success: true, meeting });
+    } catch (error) {
+      return feishuApiError(res, error);
+    }
+  });
+
+  app.post("/api/feishu/meetings", async (req, res) => {
+    try {
+      const input = validMeetingInput(req.body, true);
+      const meeting = await createFeishuMeeting({
+        ...input,
+        title: input.title?.trim(),
+        status: input.status || "筹备中",
+      });
+      return res.status(201).json({ success: true, meeting });
+    } catch (error) {
+      return feishuApiError(res, error);
+    }
+  });
+
+  app.put("/api/feishu/meetings/:recordId", async (req, res) => {
+    try {
+      const input = validMeetingInput(req.body, false);
+      const meeting = await updateFeishuMeeting(req.params.recordId, input);
+      return res.json({ success: true, meeting });
+    } catch (error) {
+      return feishuApiError(res, error);
+    }
+  });
+
+  app.delete("/api/feishu/meetings/:recordId", async (req, res) => {
+    try {
+      await deleteFeishuMeeting(req.params.recordId);
+      return res.json({ success: true });
+    } catch (error) {
+      return feishuApiError(res, error);
+    }
+  });
+
+  /**
+   * 根据会议类型生成整套 Word，并在服务端打包成 ZIP。
+   * Body: { meetingId?, meetingTitle, meetingType, values? }
+   */
+  app.post("/api/meetings/package", async (req, res) => {
+    try {
+      const { meetingId, meetingTitle, meetingType, values } = req.body as {
+        meetingId?: string;
+        meetingTitle?: string;
+        meetingType?: MeetingPackageType;
+        values?: Record<string, string | number | boolean | null>;
+      };
+
+      let feishuMeeting: Awaited<ReturnType<typeof getFeishuMeeting>> | null = null;
+      if (meetingId?.startsWith("rec")) {
+        feishuMeeting = await getFeishuMeeting(meetingId);
+      }
+
+      const effectiveTitle = meetingTitle?.trim() || feishuMeeting?.title;
+      if (!effectiveTitle) {
+        return res.status(400).json({ success: false, error: "缺少会议标题或有效的飞书会议记录 ID" });
+      }
+
+      const typeFromFeishu: MeetingPackageType | undefined = feishuMeeting
+        ? feishuMeeting.type.includes("股东")
+          ? "shareholder"
+          : feishuMeeting.type.includes("监事")
+            ? "supervisor"
+            : "board"
+        : undefined;
+      const effectiveType = meetingType || typeFromFeishu;
+      if (!effectiveType || !["shareholder", "board", "supervisor"].includes(effectiveType)) {
+        return res.status(400).json({ success: false, error: "会议类型必须是 shareholder、board 或 supervisor" });
+      }
+      if (values !== undefined && (typeof values !== "object" || Array.isArray(values))) {
+        return res.status(400).json({ success: false, error: "values 必须是占位符字段对象" });
+      }
+
+      const feishuValues: Record<string, string | number | boolean | null> = {};
+      if (feishuMeeting) {
+        const displayValue = (value: unknown) => {
+          if (value === null || value === undefined) return "";
+          if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
+          if (Array.isArray(value)) return value.map(displayValue).filter(Boolean).join("、");
+          if (typeof value === "object") {
+            const item = value as Record<string, unknown>;
+            return displayValue(item.text || item.name || item.value || "");
+          }
+          return "";
+        };
+        for (const [fieldName, fieldValue] of Object.entries(feishuMeeting.fields)) {
+          feishuValues[`会议表.${fieldName}`] = displayValue(fieldValue);
+        }
+        feishuValues["会议表.主题"] = feishuMeeting.title;
+        feishuValues["会议表.会议类型"] = feishuMeeting.type;
+        feishuValues["会议表.时间"] = feishuMeeting.date;
+        feishuValues["会议表.时间|日期"] = feishuMeeting.date;
+        feishuValues["会议表.时间|时间"] = feishuMeeting.startTime;
+        feishuValues["会议表.会议地点"] = feishuMeeting.location;
+        feishuValues["会议表.会务联系人"] = feishuMeeting.contactName;
+        feishuValues["会议表.会务联系电话"] = feishuMeeting.contactPhone;
+        feishuValues["会议表.会务邮箱"] = feishuMeeting.contactEmail;
+        feishuValues["会议表.状态"] = feishuMeeting.status;
+        feishuValues["会议表.参会人员"] = feishuMeeting.participantNames.join("、");
+        if (feishuMeeting.expectedAttendance !== undefined) {
+          feishuValues["人员汇总.应到人数"] = feishuMeeting.expectedAttendance;
+        }
+        if (feishuMeeting.actualAttendance !== undefined) {
+          feishuValues["人员汇总.实到人数"] = feishuMeeting.actualAttendance;
+        }
+      }
+
+      const meetingPackage = await createMeetingPackage({
+        meetingTitle: effectiveTitle,
+        meetingType: effectiveType,
+        values: { ...feishuValues, ...(values || {}) },
+      });
+      const packageId = crypto.randomUUID();
+      await fs.writeFile(join(meetingPackagesDir, `${packageId}.zip`), meetingPackage.buffer);
+
+      const encodedName = encodeURIComponent(meetingPackage.fileName);
+      return res.json({
+        success: true,
+        meetingId: meetingId || null,
+        meetingType: effectiveType,
+        fileCount: meetingPackage.fileCount,
+        documentNames: meetingPackage.documentNames,
+        folderUrl: null,
+        archivedToFeishu: false,
+        downloadUrl: `/api/meetings/packages/${packageId}?filename=${encodedName}`,
+      });
+    } catch (error) {
+      console.error("生成会议档案失败:", error);
+      return res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : "生成会议档案失败",
+      });
+    }
+  });
+
+  app.get("/api/meetings/packages/:packageId", async (req, res) => {
+    const packageId = req.params.packageId;
+    if (!/^[0-9a-f-]{36}$/i.test(packageId)) {
+      return res.status(400).json({ success: false, error: "下载地址无效" });
+    }
+
+    try {
+      const file = await fs.readFile(join(meetingPackagesDir, `${packageId}.zip`));
+      const requestedName = typeof req.query.filename === "string"
+        ? req.query.filename.replace(/[\r\n"]/g, "")
+        : "meeting-package.zip";
+      const encodedName = encodeURIComponent(requestedName);
+      res.setHeader("Content-Type", "application/zip");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="meeting-package.zip"; filename*=UTF-8''${encodedName}`,
+      );
+      return res.send(file);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ENOENT") {
+        return res.status(404).json({ success: false, error: "档案包不存在或服务已重启，请重新生成" });
+      }
+      console.error("下载会议档案失败:", error);
+      return res.status(500).json({ success: false, error: "下载会议档案失败" });
     }
   });
 
