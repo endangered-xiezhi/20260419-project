@@ -3,7 +3,7 @@ import { FileText, Download, Printer, Check, Edit3, Save, X, FileCheck, Plus, Ch
 import { cn } from "@/lib/utils";
 import { generateWordDocument, generateRegulationWord } from "@/utils/documentGenerator";
 import { downloadMeetingPackage, requestMeetingPackage, type MeetingPackageType } from "@/services/meetingPackage";
-import { getMeetingFromFeishu } from "@/services/feishuMeetings";
+import { getMeetingFromFeishu, listMeetingsFromFeishu, type ApiMeeting } from "@/services/feishuMeetings";
 import {
   createVotingDocument,
   getVotingContext,
@@ -90,6 +90,7 @@ interface EmailDocument {
 interface VotingFormData {
   meetingDate: string;
   meetingId: string;
+  meetingTitle: string;
   shareholderId: string;
   shareholderName: string;
   shares: string;
@@ -1410,6 +1411,7 @@ const DocumentFormModal: React.FC<{
         return {
           meetingDate: today,
           meetingId: meetingId || '',
+          meetingTitle,
           shareholderId: '',
           shareholderName: '',
           shares: '',
@@ -1454,6 +1456,9 @@ const DocumentFormModal: React.FC<{
 
   const availableAttendees = getAttendees();
   const [votingContext, setVotingContext] = useState<VotingContext | null>(null);
+  const [availableMeetings, setAvailableMeetings] = useState<ApiMeeting[]>([]);
+  const [activeMeetingId, setActiveMeetingId] = useState(meetingId || '');
+  const [meetingsLoading, setMeetingsLoading] = useState(template.id === 'voting' && !meetingId);
   const [contextLoading, setContextLoading] = useState(template.id === 'voting');
   const [actionLoading, setActionLoading] = useState<'single' | 'batch' | 'vote' | null>(null);
   const [actionMessage, setActionMessage] = useState('');
@@ -1462,21 +1467,50 @@ const DocumentFormModal: React.FC<{
 
   useEffect(() => {
     if (template.id !== 'voting') return;
-    if (!meetingId) {
+    let active = true;
+    setMeetingsLoading(true);
+    listMeetingsFromFeishu()
+      .then(({ meetings }) => {
+        if (active) setAvailableMeetings(meetings);
+      })
+      .catch((error) => {
+        if (active) setActionError(error instanceof Error ? error.message : '飞书会议列表读取失败');
+      })
+      .finally(() => {
+        if (active) setMeetingsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [template.id]);
+
+  useEffect(() => {
+    if (template.id !== 'voting') return;
+    if (!activeMeetingId) {
       setContextLoading(false);
-      setActionError('当前没有会议编号，请先从会议列表进入文书中心。');
+      setVotingContext(null);
       return;
     }
     let active = true;
     setContextLoading(true);
-    getVotingContext(meetingId)
+    setActionError('');
+    getVotingContext(activeMeetingId)
       .then(({ context }) => {
         if (!active) return;
         setVotingContext(context);
         setFormData((current) => ({
           ...(current as VotingFormData),
-          meetingId,
+          meetingId: activeMeetingId,
+          meetingTitle: context.meeting.title || (current as VotingFormData).meetingTitle,
           meetingDate: context.meeting.date || (current as VotingFormData).meetingDate,
+          shareholderId: '',
+          shareholderName: '',
+          shares: '',
+          shareholding: '',
+          votingRights: '',
+          proposalId: '',
+          proposalNumber: '',
+          proposalTitle: '',
         }));
       })
       .catch((error) => {
@@ -1488,7 +1522,7 @@ const DocumentFormModal: React.FC<{
     return () => {
       active = false;
     };
-  }, [meetingId, template.id]);
+  }, [activeMeetingId, template.id]);
 
   const handleGenerate = async () => {
     const votingData = formData as VotingFormData;
@@ -1499,7 +1533,10 @@ const DocumentFormModal: React.FC<{
     setActionError('');
     setActionMessage('');
     setActionLoading('single');
-    const content = generateDocumentContent(meetingTitle, template.id, template.name, formData);
+    const contentMeetingTitle = template.id === 'voting'
+      ? votingData.meetingTitle || votingContext?.meeting.title || meetingTitle
+      : meetingTitle;
+    const content = generateDocumentContent(contentMeetingTitle, template.id, template.name, formData);
     try {
       await onGenerate(content, formData);
       if (template.id === 'voting') {
@@ -1552,7 +1589,8 @@ const DocumentFormModal: React.FC<{
     const items = votingContext.shareholders.flatMap((shareholder) =>
       proposals.map((proposal) => ({
         ...current,
-        meetingId: meetingId || '',
+        meetingId: activeMeetingId,
+        meetingTitle: votingContext.meeting.title || current.meetingTitle,
         shareholderId: shareholder.id,
         shareholderName: shareholder.name,
         shares: shareholder.shares,
@@ -1619,7 +1657,11 @@ const DocumentFormModal: React.FC<{
                   <div>
                     <p className="text-xs font-bold tracking-wide text-cyan-800">飞书实时数据</p>
                     <p className="mt-1 text-sm text-slate-700">
-                      {contextLoading ? '正在读取会议、股东和议案…' : `已读取 ${votingContext?.shareholders.length || 0} 名股东、${votingContext?.proposals.length || 0} 项议案`}
+                      {contextLoading
+                        ? '正在读取会议、股东和议案…'
+                        : !activeMeetingId
+                          ? `已从飞书读取 ${availableMeetings.length} 场会议，请选择一场`
+                          : `已读取 ${votingContext?.shareholders.length || 0} 名股东、${votingContext?.proposals.length || 0} 项议案`}
                     </p>
                   </div>
                   {contextLoading ? <Loader2 className="animate-spin text-cyan-700" size={20} /> : <ShieldCheck className="text-emerald-600" size={22} />}
@@ -1632,6 +1674,25 @@ const DocumentFormModal: React.FC<{
               </div>
 
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="md:col-span-2">
+                  <label className="mb-1.5 block text-xs font-bold text-slate-600">会议（飞书会议表）</label>
+                  <select
+                    value={activeMeetingId}
+                    onChange={(event) => setActiveMeetingId(event.target.value)}
+                    disabled={meetingsLoading}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-cyan-600 disabled:bg-slate-50"
+                  >
+                    <option value="">{meetingsLoading ? '正在读取飞书会议…' : '请选择会议'}</option>
+                    {availableMeetings.map((meeting) => (
+                      <option key={meeting.id} value={meeting.id}>
+                        {meeting.date ? `${meeting.date} · ` : ''}{meeting.title}
+                      </option>
+                    ))}
+                  </select>
+                  {!activeMeetingId && !meetingsLoading && (
+                    <p className="mt-1.5 text-xs text-amber-700">请在这里选择会议，不需要返回会议列表。</p>
+                  )}
+                </div>
                 <div>
                   <label className="mb-1.5 block text-xs font-bold text-slate-600">会议日期（自动读取）</label>
                   <input value={current.meetingDate} readOnly className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700" />
@@ -2331,7 +2392,7 @@ ${new Date().toLocaleDateString('zh-CN')}`,
   };
 
   const handleGenerateClick = (template: DocumentTemplate) => {
-    if (!meetingTitle.trim()) {
+    if (!meetingTitle.trim() && template.id !== 'voting') {
       alert('请先输入会议标题');
       return;
     }
@@ -2363,19 +2424,20 @@ ${new Date().toLocaleDateString('zh-CN')}`,
       setRegulationTitle('');
     } else {
       // 会议文件生成
-      if (!meetingTitle.trim()) return;
       const meetingType = documentTypeMeetingType[formTemplate.id] || 'shareholder';
       const votingData = formTemplate.id === 'voting' ? formData as VotingFormData : null;
+      const effectiveMeetingTitle = votingData?.meetingTitle || meetingTitle;
+      if (!effectiveMeetingTitle.trim()) return;
       const documentName = votingData
-        ? `${meetingTitle}-${votingData.shareholderName}-${votingData.proposalTitle || '表决事项'}表决票`
-        : `${meetingTitle}${formTemplate.name}`;
+        ? `${effectiveMeetingTitle}-${votingData.shareholderName}-${votingData.proposalTitle || '表决事项'}表决票`
+        : `${effectiveMeetingTitle}${formTemplate.name}`;
 
       const newDoc: GeneratedDocument = {
         id: `doc-${Date.now()}-${formTemplate.id}`,
         name: documentName,
         type: formTemplate.id,
         typeName: formTemplate.name,
-        meetingTitle: meetingTitle,
+        meetingTitle: effectiveMeetingTitle,
         meetingType: meetingType,
         level1Category: 'meeting',
         level2Category: meetingType,
@@ -2399,7 +2461,7 @@ ${new Date().toLocaleDateString('zh-CN')}`,
         newDoc.syncStatus = 'synced';
       }
 
-      saveMeetingTitle(meetingTitle);
+      saveMeetingTitle(effectiveMeetingTitle);
       setMeetingHistory(getMeetingHistory());
 
       setGeneratedDocs(prev => [newDoc, ...prev]);
@@ -2415,8 +2477,9 @@ ${new Date().toLocaleDateString('zh-CN')}`,
     for (let index = 0; index < items.length; index += 5) {
       const group = items.slice(index, index + 5);
       const groupDocs = await Promise.all(group.map(async (item, offset) => {
-        const content = generateDocumentContent(meetingTitle, 'voting', '表决票', item);
-        const name = `${meetingTitle}-${item.shareholderName}-${item.proposalTitle || '表决事项'}表决票`;
+        const effectiveMeetingTitle = item.meetingTitle || meetingTitle;
+        const content = generateDocumentContent(effectiveMeetingTitle, 'voting', '表决票', item);
+        const name = `${effectiveMeetingTitle}-${item.shareholderName}-${item.proposalTitle || '表决事项'}表决票`;
         const result = await createVotingDocument({
           meetingId: item.meetingId,
           shareholderId: item.shareholderId,
@@ -2431,7 +2494,7 @@ ${new Date().toLocaleDateString('zh-CN')}`,
           name,
           type: 'voting',
           typeName: '表决票',
-          meetingTitle,
+          meetingTitle: effectiveMeetingTitle,
           meetingType: 'shareholder' as const,
           level1Category: 'meeting' as const,
           level2Category: 'shareholder' as const,
@@ -2445,7 +2508,8 @@ ${new Date().toLocaleDateString('zh-CN')}`,
       createdDocs.push(...groupDocs);
     }
 
-    saveMeetingTitle(meetingTitle);
+    const selectedMeetingTitle = items[0]?.meetingTitle || meetingTitle;
+    saveMeetingTitle(selectedMeetingTitle);
     setMeetingHistory(getMeetingHistory());
     setGeneratedDocs((previous) => [...createdDocs, ...previous]);
   };
