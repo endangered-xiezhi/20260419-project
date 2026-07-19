@@ -786,17 +786,15 @@ export async function getFeishuVotingContext(meetingId: string): Promise<FeishuV
   return {
     meeting: {
       id: meetingRecord.record_id,
-      title: readableValue(
-        meetingRecord.fields["主题"] ??
-          meetingRecord.fields["会议标题"] ??
-          meetingRecord.fields["会议名称"],
-      ),
-      date: dateValue(
-        meetingRecord.fields["会议开始时间"] ??
-          meetingRecord.fields["时间"] ??
-          meetingRecord.fields["会议日期"] ??
-          meetingRecord.fields["会议时间"],
-      ),
+      title:
+        readableValue(meetingRecord.fields["主题"]) ||
+        readableValue(meetingRecord.fields["会议标题"]) ||
+        readableValue(meetingRecord.fields["会议名称"]),
+      date:
+        dateValue(meetingRecord.fields["会议开始时间"]) ||
+        dateValue(meetingRecord.fields["时间"]) ||
+        dateValue(meetingRecord.fields["会议日期"]) ||
+        dateValue(meetingRecord.fields["会议时间"]),
       type: readableValue(meetingRecord.fields["会议类型"]),
     },
     shareholders,
