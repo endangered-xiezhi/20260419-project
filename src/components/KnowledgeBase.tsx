@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { Plus, Search, Trash2, Edit3, FileText, CheckCircle, Clock, Save, X, FileUp, RefreshCw, Eye, Edit } from "lucide-react";
 import { KnowledgeItem } from "../types";
 import { cn } from "@/lib/utils";
-const KB_IMPORT_VERSION = "rules-word-pdf-v1";
+const KB_IMPORT_VERSION = "rules-and-catl-company-docs-v2";
 const KB_STORAGE_KEY = "corporate_knowledge_base";
 const KB_VERSION_KEY = "knowledge_import_version";
 
@@ -59,10 +59,17 @@ export const KnowledgeBase: React.FC = () => {
     if (readCachedKnowledge()) return;
 
     let cancelled = false;
-    fetch("/data/rulesKnowledge.json")
-      .then((r) => {
-        if (!r.ok) throw new Error("加载失败");
-        return r.json();
+    Promise.all([
+      fetch("/data/rulesKnowledge.json"),
+      fetch("/data/companyRulesKnowledge.json"),
+    ])
+      .then(async ([rulesResponse, companyRulesResponse]) => {
+        if (!rulesResponse.ok || !companyRulesResponse.ok) throw new Error("加载失败");
+        const [rules, companyRules] = await Promise.all([
+          rulesResponse.json() as Promise<KnowledgeItem[]>,
+          companyRulesResponse.json() as Promise<KnowledgeItem[]>,
+        ]);
+        return [...companyRules, ...rules];
       })
       .then((data: KnowledgeItem[]) => {
         if (cancelled) return;
@@ -259,7 +266,7 @@ export const KnowledgeBase: React.FC = () => {
                     value={currentItem.title || ""} 
                     onChange={e => setCurrentItem({...currentItem, title: e.target.value})}
                     className="w-full border border-mck-border px-4 py-2 text-sm focus:outline-none focus:border-mck-blue"
-                    placeholder="例如：公司章程修订版"
+                    placeholder="例如：信息披露管理制度（修订版）"
                   />
                 </div>
                 <div className="space-y-2">
@@ -270,7 +277,7 @@ export const KnowledgeBase: React.FC = () => {
                     className="w-full border border-mck-border px-4 py-2 text-sm focus:outline-none focus:border-mck-blue bg-white"
                   >
                     <option>法律法规</option>
-                    <option>公司章程</option>
+                    <option>公司内部规范性文件</option>
                     <option>规章制度</option>
                     <option>监管问答</option>
                   </select>
@@ -338,7 +345,7 @@ export const KnowledgeBase: React.FC = () => {
             <h3 className="text-xs font-bold uppercase tracking-widest text-mck-navy/60 mb-4">规则类型</h3>
             <div className="space-y-3">
               {[
-                { name: "公司章程制度", key: "公司章程", count: items.filter(i => i.category === "公司章程").length + importedRegulations.length },
+                { name: "公司内部规范性文件", key: "公司内部规范性文件", count: items.filter(i => i.category === "公司内部规范性文件").length + importedRegulations.length },
                 { name: "法律法规", key: "法律法规", count: items.filter(i => i.category === "法律法规").length }
               ].map(cat => (
                   <button
@@ -371,7 +378,7 @@ export const KnowledgeBase: React.FC = () => {
               <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-mck-navy/40" />
               <input 
                 type="text" 
-                placeholder="搜索法律法规、公司章程制度…"  
+                placeholder="搜索法律法规、公司内部规范性文件…"
                 value={searchQuery}
                 onChange={e => { setSearchQuery(e.target.value); setCurrentPage(1); }}
                 className="w-full bg-white border border-mck-border pl-12 pr-4 py-3 text-sm focus:outline-none focus:border-mck-blue"
@@ -381,13 +388,13 @@ export const KnowledgeBase: React.FC = () => {
 
           <div className="grid grid-cols-1 gap-4">
             {(() => {
-              // 当选择"公司章程"分类时，包含导入的制度文件
-              const showImportedRegs = selectedCategory === "公司章程";
+              // 选择公司内部规范性文件分类时，包含从文书中心导入的制度文件
+              const showImportedRegs = selectedCategory === "公司内部规范性文件";
               const allItems = showImportedRegs 
-                ? [...categoryFilteredItems, ...importedRegulations.map(reg => ({
+                ? [...categoryFilteredItems, ...importedRegulations.map((reg): KnowledgeItem => ({
                     id: reg.id,
                     title: reg.name,
-                    category: "公司章程",
+                    category: "公司内部规范性文件",
                     content: reg.content,
                     lastModified: reg.date,
                     status: "已生效",
@@ -427,7 +434,7 @@ export const KnowledgeBase: React.FC = () => {
                               <span className={cn(
                                 "text-[9px] font-bold uppercase px-1.5 py-0.5",
                                 item.category === "法律法规" ? "bg-blue-100 text-blue-700" : 
-                                item.category === "公司章程" ? "bg-green-100 text-green-700" : "bg-mck-bg text-mck-navy/60"
+                                item.category === "公司内部规范性文件" ? "bg-green-100 text-green-700" : "bg-mck-bg text-mck-navy/60"
                               )}>
                                 {item.category}
                               </span>

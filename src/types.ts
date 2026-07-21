@@ -62,7 +62,7 @@ export interface LegalArticle {
 export interface KnowledgeItem {
   id: string;
   title: string;
-  category: "法律法规" | "公司章程" | "规章制度" | "监管问答";
+  category: "法律法规" | "公司内部规范性文件" | "规章制度" | "监管问答";
   content: string;
   lastModified: string;
   status: "已生效" | "草案";
@@ -71,6 +71,14 @@ export interface KnowledgeItem {
   fullContent?: string;
   /** 静态资源路径，全文按需 fetch（OCR 批量导入） */
   ocrSourceUrl?: string;
+  isImportedRegulation?: boolean;
+  originalRegulation?: {
+    id: string;
+    name: string;
+    typeName: string;
+    content: string;
+    date: string;
+  };
 }
 
 export interface Personnel {

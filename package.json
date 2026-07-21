@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "generate:rules-manifest": "tsx scripts/build-rules-manifest.ts"
+    "generate:rules-manifest": "tsx scripts/build-rules-manifest.ts",
+    "generate:company-rules": "node --import tsx scripts/build-company-rules-manifest.ts"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
