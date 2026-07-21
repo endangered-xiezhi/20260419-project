@@ -29,8 +29,8 @@ async function walk(dir: string, acc: string[] = []): Promise<string[]> {
 function titleFromFile(fileName: string): string {
   return fileName
     .replace(/\.txt$/i, "")
-    .replace(/^宁德时代_?/, "宁德时代｜")
-    .replace(/｜+/, "｜");
+    .replace(/^宁德时代_?/, "")
+    .replace(/宁德时代/g, "");
 }
 
 function dateFromFile(fileName: string, fallback: Date): string {
