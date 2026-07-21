@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { Plus, Search, Trash2, Edit3, FileText, CheckCircle, Clock, Save, X, FileUp, RefreshCw, Eye, Edit } from "lucide-react";
 import { KnowledgeItem } from "../types";
 import { cn } from "@/lib/utils";
-const KB_IMPORT_VERSION = "rules-and-catl-company-docs-v2";
+const KB_IMPORT_VERSION = "rules-and-catl-company-docs-v3";
 const KB_STORAGE_KEY = "corporate_knowledge_base";
 const KB_VERSION_KEY = "knowledge_import_version";
 
