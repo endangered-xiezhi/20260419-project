@@ -119,6 +119,24 @@ export async function listMeetingsFromFeishu() {
   );
 }
 
+export type ApiMeetingMinutesSummary = {
+  meetingId: string;
+  meetingTitle: string;
+  title: string;
+  date: string;
+  content: string;
+  minutesUrl: string;
+  updatedAt: string;
+};
+
+export async function listMeetingMinutesFromFeishu() {
+  return apiRequest<{
+    success: true;
+    minutes: ApiMeetingMinutesSummary[];
+    syncedAt: string;
+  }>("/api/feishu/minutes");
+}
+
 export async function listPersonnelFromFeishu() {
   return apiRequest<{
     success: true;

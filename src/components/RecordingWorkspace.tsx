@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import {
   generateMeetingProposals,
   getMeetingSourceBundle,
+  listMeetingMinutesFromFeishu,
   updateMeetingInFeishu,
   type FeishuMeetingSourceBundle,
 } from "@/services/feishuMeetings";
@@ -21,6 +22,7 @@ export interface ImportedMinutesRecord {
 
 interface RecordingWorkspaceProps {
   meetingId?: string | null;
+  onSelectMeeting?: (meetingId: string) => void;
   onAnalysisComplete?: (meetingId: string) => void;
   onNavigateToDocuments?: () => void;
 }
@@ -32,6 +34,7 @@ interface MeetingMinutesRecord {
   content: string;
   hasAudio: boolean;
   audioFileName?: string;
+  sourceMeetingId?: string;
 }
 
 interface DocumentFormat {
@@ -75,7 +78,7 @@ const fontOptions = [
   { value: "'FangSong', '仿宋', serif", label: "仿宋" },
 ];
 
-export const RecordingWorkspace: React.FC<RecordingWorkspaceProps> = ({ meetingId, onAnalysisComplete, onNavigateToDocuments }) => {
+export const RecordingWorkspace: React.FC<RecordingWorkspaceProps> = ({ meetingId, onSelectMeeting, onAnalysisComplete, onNavigateToDocuments }) => {
   const [records, setRecords] = useState<MeetingMinutesRecord[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
     return saved ? JSON.parse(saved) : [];
@@ -93,6 +96,8 @@ export const RecordingWorkspace: React.FC<RecordingWorkspaceProps> = ({ meetingI
   const [isLoadingFeishu, setIsLoadingFeishu] = useState(false);
   const [isGeneratingProposals, setIsGeneratingProposals] = useState(false);
   const [sourceMessage, setSourceMessage] = useState("");
+  const [isLoadingHistory, setIsLoadingHistory] = useState(true);
+  const [historyError, setHistoryError] = useState("");
   
   const [docFormat, setDocFormat] = useState<DocumentFormat>({
     fontSize: 14,
@@ -159,6 +164,40 @@ export const RecordingWorkspace: React.FC<RecordingWorkspaceProps> = ({ meetingI
     localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
   }, [records]);
 
+  // 飞书是会议纪要历史的主数据源。本地记录仍保留，但不再决定换浏览器
+  // 或重新部署后能否看到既有纪要。
+  useEffect(() => {
+    let active = true;
+    setIsLoadingHistory(true);
+    setHistoryError("");
+    listMeetingMinutesFromFeishu()
+      .then((result) => {
+        if (!active) return;
+        const feishuRecords: MeetingMinutesRecord[] = result.minutes.map((item) => ({
+          id: `feishu-${item.meetingId}`,
+          title: item.title,
+          date: item.updatedAt || item.date,
+          content: item.content,
+          hasAudio: Boolean(item.minutesUrl),
+          sourceMeetingId: item.meetingId,
+        }));
+        setRecords((current) => [
+          ...feishuRecords,
+          ...current.filter((record) => !record.id.startsWith("feishu-")),
+        ]);
+      })
+      .catch((error) => {
+        if (!active) return;
+        setHistoryError(error instanceof Error ? error.message : "飞书会议纪要读取失败");
+      })
+      .finally(() => {
+        if (active) setIsLoadingHistory(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const loadFeishuSource = useCallback(async () => {
     if (!meetingId) {
       setSourceBundle(null);
@@ -188,6 +227,7 @@ export const RecordingWorkspace: React.FC<RecordingWorkspaceProps> = ({ meetingI
         date: bundle.meeting.date,
         content: bundle.minutes.content,
         hasAudio: Boolean(bundle.minutes.token),
+        sourceMeetingId: meetingId,
       };
       setCurrentRecord(loadedRecord);
       setSourceMessage(
@@ -301,6 +341,7 @@ export const RecordingWorkspace: React.FC<RecordingWorkspaceProps> = ({ meetingI
   };
 
   const selectRecord = (record: MeetingMinutesRecord) => {
+    if (record.sourceMeetingId) onSelectMeeting?.(record.sourceMeetingId);
     setCurrentRecord(record);
     setMeetingContent(record.content);
     setMeetingTitle(record.title);
@@ -937,9 +978,14 @@ export const RecordingWorkspace: React.FC<RecordingWorkspaceProps> = ({ meetingI
           </div>
           
           <div className="flex flex-col gap-2">
-            {records.length === 0 ? (
+            {isLoadingHistory && records.length === 0 ? (
+              <div className="w-full text-center py-4 text-mck-navy/40 text-xs flex items-center justify-center gap-2">
+                <Loader2 size={14} className="animate-spin" />
+                <p>正在读取飞书会议纪要...</p>
+              </div>
+            ) : records.length === 0 ? (
               <div className="w-full text-center py-4 text-mck-navy/40 text-xs">
-                <p>暂无会议纪要</p>
+                <p>{historyError || "飞书中暂无会议纪要"}</p>
               </div>
             ) : (
               records.map((record) => (
@@ -962,9 +1008,11 @@ export const RecordingWorkspace: React.FC<RecordingWorkspaceProps> = ({ meetingI
                     <button onClick={(e) => openImportModal(record, e)} className="p-1.5 text-mck-navy/50 hover:text-white hover:bg-mck-navy rounded transition-colors" title="导入文书中心">
                       <UploadCloud size={14} />
                     </button>
-                    <button onClick={(e) => deleteRecord(record.id, e)} className="p-1.5 text-mck-navy/50 hover:text-white hover:bg-gray-500 rounded transition-colors" title="删除">
-                      <Trash2 size={14} />
-                    </button>
+                    {!record.id.startsWith("feishu-") && (
+                      <button onClick={(e) => deleteRecord(record.id, e)} className="p-1.5 text-mck-navy/50 hover:text-white hover:bg-gray-500 rounded transition-colors" title="删除">
+                        <Trash2 size={14} />
+                      </button>
+                    )}
                   </div>
                 </div>
               ))

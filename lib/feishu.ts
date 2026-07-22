@@ -486,6 +486,16 @@ export type FeishuMeeting = {
   fields: Record<string, unknown>;
 };
 
+export type FeishuMeetingMinutesSummary = {
+  meetingId: string;
+  meetingTitle: string;
+  title: string;
+  date: string;
+  content: string;
+  minutesUrl: string;
+  updatedAt: string;
+};
+
 export type FeishuPersonnel = {
   id: string;
   name: string;
@@ -896,6 +906,35 @@ export async function listFeishuMeetings() {
     meeting.entityType = meeting.entityType || company.entityType;
     return meeting;
   });
+}
+
+export function normalizeMeetingMinutes(
+  records: FeishuRecord[],
+): FeishuMeetingMinutesSummary[] {
+  return records.flatMap((record) => {
+    const content = firstReadableField(record.fields, ["会议纪要正文", "会议记录正文", "纪要正文"]);
+    const minutesUrl = firstReadableField(record.fields, ["妙记/纪要链接", "妙记链接", "会议纪要链接"]);
+    if (!content && !minutesUrl) return [];
+
+    const meetingTitle = firstReadableField(record.fields, ["主题", "会议名称"]) || "未命名会议";
+    const rawStart = record.fields["会议开始时间"] ?? record.fields["时间"];
+    return [{
+      meetingId: record.record_id,
+      meetingTitle,
+      title: meetingTitle.endsWith("会议") ? `${meetingTitle}纪要` : `${meetingTitle}会议纪要`,
+      date: dateValue(rawStart) || dateValue(record.created_time) || new Date().toISOString().slice(0, 10),
+      content,
+      minutesUrl,
+      updatedAt: dateValue(record.last_modified_time) || dateValue(rawStart),
+    }];
+  });
+}
+
+export async function listFeishuMeetingMinutes(): Promise<FeishuMeetingMinutesSummary[]> {
+  const { token, appToken } = await getBitableContext();
+  const tableId = await resolveTableId(token, appToken, "FEISHU_MEETING_TABLE_ID", ["会议表"]);
+  const records = await listRecordsByTableId(token, appToken, tableId);
+  return normalizeMeetingMinutes(records);
 }
 
 export async function getFeishuMeeting(recordId: string) {

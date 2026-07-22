@@ -35,6 +35,7 @@ import {
   listFeishuPersonnel,
   listFeishuDocuments,
   listFeishuMeetings,
+  listFeishuMeetingMinutes,
   listFeishuTables,
   submitFeishuVote,
   syncFeishuDocumentJob,
@@ -573,6 +574,15 @@ async function startServer() {
         meetings,
         syncedAt: new Date().toISOString(),
       });
+    } catch (error) {
+      return feishuApiError(res, error);
+    }
+  });
+
+  app.get("/api/feishu/minutes", async (_req, res) => {
+    try {
+      const minutes = await listFeishuMeetingMinutes();
+      return res.json({ success: true, minutes, syncedAt: new Date().toISOString() });
     } catch (error) {
       return feishuApiError(res, error);
     }

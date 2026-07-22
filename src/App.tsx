@@ -632,8 +632,9 @@ export default function App() {
             <MeetingManager onStartMeeting={handleStartMeeting} onNavigate={navigateTo} />
           )}
           {activeTab === "recording" && (
-            <RecordingWorkspace 
-              meetingId={selectedMeetingId} 
+            <RecordingWorkspace
+              meetingId={selectedMeetingId}
+              onSelectMeeting={setSelectedMeetingId}
               onAnalysisComplete={handleGoToCompliance}
               onNavigateToDocuments={() => {
                 setActiveTab("documents");
