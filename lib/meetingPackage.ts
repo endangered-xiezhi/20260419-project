@@ -25,6 +25,7 @@ export type MeetingPackageInput = {
     type?: string;
     shares?: string | number;
     shareholding?: string | number;
+    votingRights?: string | number;
     representative?: string;
   }>;
 };
@@ -227,6 +228,9 @@ async function renderDocxTemplate(
         "{{股东表.持股比例}}": shareholder.shareholding === undefined || shareholder.shareholding === ""
           ? ""
           : `${shareholder.shareholding}${String(shareholder.shareholding).includes("%") ? "" : "%"}`,
+        "{{股东表.股东会表决权}}": shareholder.votingRights === undefined || shareholder.votingRights === ""
+          ? ""
+          : `${shareholder.votingRights}${String(shareholder.votingRights).includes("%") ? "" : "%"}`,
         "{{股东表.授权代表}}": shareholder.representative || "",
       }));
       const signers = participants.length ? participants : shareholders.map((shareholder) => ({ name: shareholder.name }));

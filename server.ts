@@ -213,11 +213,13 @@ async function startServer() {
             type: person.role,
             shares: person.shares,
             shareholding: person.shareholding,
+            votingRights: person.votingRights,
           }))
         : votingShareholders.map((shareholder) => ({
             name: shareholder.name,
             shares: shareholder.shares,
             shareholding: shareholder.shareholding,
+            votingRights: shareholder.votingRights,
           })),
     };
   }

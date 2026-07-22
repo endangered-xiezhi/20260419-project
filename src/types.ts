@@ -89,6 +89,7 @@ export interface Personnel {
   isShareholder?: boolean; // 是否股东
   shares?: number; // 持股数量（股）
   shareholding?: number; // 股权占比，百分比
+  votingRights?: number; // 股东会表决权，百分比
   termStart?: string;
   termEnd?: string;
   isIndependent?: boolean;

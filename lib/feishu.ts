@@ -487,6 +487,7 @@ export type FeishuPersonnel = {
   isShareholder: boolean;
   shares?: number;
   shareholding?: number;
+  votingRights?: number;
 };
 
 async function personnelDirectory(token: string, appToken: string) {
@@ -561,6 +562,9 @@ export async function listFeishuPersonnel() {
         ? numberValue(record.fields["持股数量"] ?? record.fields["持股数"] ?? record.fields["股份数量"])
         : undefined,
       shareholding: isShareholder ? numberValue(record.fields["持股比例"]) : undefined,
+      votingRights: isShareholder
+        ? numberValue(record.fields["股东会表决权"] ?? record.fields["表决权比例"] ?? record.fields["表决权数量"] ?? record.fields["票权数"])
+        : undefined,
     }];
   });
 }
@@ -578,6 +582,7 @@ export type FeishuPersonnelInput = {
   isShareholder?: boolean;
   shares?: number;
   shareholding?: number;
+  votingRights?: number;
 };
 
 function personnelWriteFields(
@@ -622,6 +627,12 @@ function personnelWriteFields(
     }
     putAvailable(fields, available, ["持股数量", "持股数", "股份数量"], input.isShareholder ? input.shares ?? 0 : 0);
     putAvailable(fields, available, ["持股比例"], input.isShareholder ? input.shareholding ?? 0 : 0);
+    putAvailable(
+      fields,
+      available,
+      ["股东会表决权", "表决权比例", "表决权数量", "票权数"],
+      input.isShareholder ? input.votingRights ?? input.shareholding ?? 0 : 0,
+    );
   }
   return fields;
 }
@@ -1165,7 +1176,9 @@ export async function getFeishuVotingContext(meetingId: string): Promise<FeishuV
       ),
       shareholding: readableValue(record.fields["持股比例"]),
       votingRights: readableValue(
-        record.fields["表决权数量"] ??
+        record.fields["股东会表决权"] ??
+          record.fields["表决权比例"] ??
+          record.fields["表决权数量"] ??
           record.fields["票权数"] ??
           record.fields["持股数量"] ??
           record.fields["持股数"],

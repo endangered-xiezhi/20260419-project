@@ -136,6 +136,7 @@ export async function listPersonnelFromFeishu() {
       isShareholder: boolean;
       shares?: number;
       shareholding?: number;
+      votingRights?: number;
     }>;
     syncedAt: string;
   }>("/api/feishu/personnel").then((result) => ({
@@ -162,6 +163,7 @@ export type PersonnelWriteInput = {
   isShareholder?: boolean;
   shares?: number;
   shareholding?: number;
+  votingRights?: number;
 };
 
 export function createPersonnelInFeishu(input: PersonnelWriteInput) {

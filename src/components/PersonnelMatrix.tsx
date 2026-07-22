@@ -109,6 +109,7 @@ export const PersonnelMatrix: React.FC = () => {
       isShareholder: Boolean(currentPerson.isShareholder),
       shares: currentPerson.isShareholder ? currentPerson.shares : undefined,
       shareholding: currentPerson.isShareholder ? currentPerson.shareholding : undefined,
+      votingRights: currentPerson.isShareholder ? currentPerson.votingRights ?? currentPerson.shareholding : undefined,
     };
     const localPerson: Personnel = {
       id: currentPerson.id || `local-${Date.now()}`,
@@ -124,6 +125,7 @@ export const PersonnelMatrix: React.FC = () => {
       isShareholder: input.isShareholder,
       shares: input.shares,
       shareholding: input.shareholding,
+      votingRights: input.votingRights,
       conflictOfInterest: currentPerson.conflictOfInterest || [],
       sortOrder: currentPerson.sortOrder,
     };
@@ -276,6 +278,7 @@ export const PersonnelMatrix: React.FC = () => {
                         isShareholder,
                         shares: isShareholder ? currentPerson.shares : undefined,
                         shareholding: isShareholder ? currentPerson.shareholding : undefined,
+                        votingRights: isShareholder ? currentPerson.votingRights : undefined,
                       });
                     }}
                     className="w-full border border-mck-border px-4 py-2 text-sm focus:outline-none focus:border-mck-blue bg-white"
@@ -285,7 +288,7 @@ export const PersonnelMatrix: React.FC = () => {
                   </select>
                   {/* 股权占比输入框 */}
                   {currentPerson.isShareholder && (
-                    <div className="mt-2 grid grid-cols-2 gap-3">
+                    <div className="mt-2 grid grid-cols-1 gap-3 md:grid-cols-3">
                       <div>
                         <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/40">持股数量（股）</label>
                         <input
@@ -310,6 +313,19 @@ export const PersonnelMatrix: React.FC = () => {
                         className="w-full border border-mck-border px-4 py-2 text-sm focus:outline-none focus:border-mck-blue bg-white"
                         placeholder="请输入持股比例"
                       />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/40">股东会表决权 (%)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          value={currentPerson.votingRights ?? ""}
+                          onChange={e => setCurrentPerson({...currentPerson, votingRights: e.target.value === "" ? undefined : Number(e.target.value)})}
+                          className="w-full border border-mck-border px-4 py-2 text-sm focus:outline-none focus:border-mck-blue bg-white"
+                          placeholder="默认同持股比例"
+                        />
                       </div>
                     </div>
                   )}
@@ -527,6 +543,7 @@ export const PersonnelMatrix: React.FC = () => {
                   <div className="flex items-center gap-2 text-[10px] text-orange-600 font-bold">
                     <Percent size={12} />
                     <span>股东会表决权</span>
+                    <span className="ml-auto">{p.votingRights ?? p.shareholding ?? 0}%</span>
                   </div>
                 </>
               ) : (

@@ -149,7 +149,7 @@ interface MinutesFormData {
   shareholderRatio: string;
   representedShares: string;
   votingRatio: string;
-  shareholders: Array<{ name: string; shares: string; shareholding: string }>;
+  shareholders: Array<{ name: string; shares: string; shareholding: string; votingRights?: string }>;
 }
 
 interface NoticeFormData {
@@ -170,12 +170,12 @@ interface ResolutionFormData {
   representedShares: string;
   votingRatio: string;
   resolutionContent: string;
-  shareholders: Array<{ name: string; shares: string; shareholding: string }>;
+  shareholders: Array<{ name: string; shares: string; shareholding: string; votingRights?: string }>;
 }
 
 interface SigninFormData {
   meetingDate: string;
-  shareholders: Array<{ name: string; shares: string; shareholding: string }>;
+  shareholders: Array<{ name: string; shares: string; shareholding: string; votingRights?: string }>;
 }
 
 interface ProxyFormData {
@@ -1525,6 +1525,7 @@ const DocumentFormModal: React.FC<{
       const shareholders = selected.filter((person) => person.isShareholder);
       const directors = selected.filter((person) => ["董事长", "董事", "独立董事"].includes(person.role));
       const shareholdingTotal = shareholders.reduce((sum, person) => sum + (person.shareholding || 0), 0);
+      const votingRightsTotal = shareholders.reduce((sum, person) => sum + (person.votingRights ?? person.shareholding ?? 0), 0);
       const sharesTotal = shareholders.reduce((sum, person) => sum + (person.shares || 0), 0);
       const meetingDate = meeting?.date || new Date().toISOString().split('T')[0];
 
@@ -1541,7 +1542,7 @@ const DocumentFormModal: React.FC<{
         if ('attendeeCount' in next) next.attendeeCount = String(selected.length);
         if ('totalShareholders' in next) next.totalShareholders = String(records.filter((person) => person.isShareholder).length);
         if ('shareholderRatio' in next) next.shareholderRatio = String(shareholdingTotal);
-        if ('votingRatio' in next) next.votingRatio = String(shareholdingTotal);
+        if ('votingRatio' in next) next.votingRatio = String(votingRightsTotal);
         if ('representedShares' in next) next.representedShares = String(sharesTotal);
         if ('expectedDirectors' in next) next.expectedDirectors = String(directors.length);
         if ('directors' in next) next.directors = directors.map((person) => ({ name: person.name, position: person.role }));
@@ -1549,6 +1550,7 @@ const DocumentFormModal: React.FC<{
           name: person.name,
           shares: person.shares === undefined ? '' : String(person.shares),
           shareholding: person.shareholding === undefined ? '' : String(person.shareholding),
+          votingRights: person.votingRights === undefined ? '' : String(person.votingRights),
         }));
         return next as unknown as FormData;
       });
@@ -1808,6 +1810,10 @@ const DocumentFormModal: React.FC<{
                 <div>
                   <label className="mb-1.5 block text-xs font-bold text-slate-600">持股数量（自动带出）</label>
                   <input value={current.shares || (current.shareholding ? `持股比例 ${current.shareholding}` : '')} readOnly placeholder="飞书股东表尚未填写持股数量" className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700" />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-bold text-slate-600">股东会表决权（自动带出）</label>
+                  <input value={current.votingRights || ''} readOnly placeholder="未填写时默认按持股数量计票" className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700" />
                 </div>
                 <div>
                   <label className="mb-1.5 block text-xs font-bold text-slate-600">会议关联议案（自动筛选）</label>

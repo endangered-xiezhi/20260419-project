@@ -856,7 +856,9 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-medium text-mck-navy">{person.name}</span>
                             {person.isShareholder ? (
-                              <span className="text-[10px] bg-orange-100 px-1.5 py-0.5 text-orange-700 font-bold">股东 {person.shareholding}%</span>
+                              <span className="text-[10px] bg-orange-100 px-1.5 py-0.5 text-orange-700 font-bold">
+                                股东 {person.shareholding}% · 表决权 {person.votingRights ?? person.shareholding ?? 0}%
+                              </span>
                             ) : (
                               <span className="text-[10px] bg-mck-bg px-1.5 py-0.5 text-mck-navy/60">{person.role}</span>
                             )}
@@ -1351,7 +1353,9 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-medium text-mck-navy">{person.name}</span>
                         {person.isShareholder ? (
-                          <span className="text-[10px] bg-orange-100 px-1.5 py-0.5 rounded text-orange-700 font-bold flex-shrink-0">股东 {person.shareholding}%</span>
+                          <span className="text-[10px] bg-orange-100 px-1.5 py-0.5 rounded text-orange-700 font-bold flex-shrink-0">
+                            股东 {person.shareholding}% · 表决权 {person.votingRights ?? person.shareholding ?? 0}%
+                          </span>
                         ) : (
                           <span className={cn(
                             "text-[10px] px-1.5 py-0.5 rounded flex-shrink-0",
