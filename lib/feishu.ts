@@ -260,9 +260,13 @@ export async function getFeishuSchemaReport() {
   const report = [];
   for (const specification of specifications) {
     const configuredId = process.env[specification.envName]?.trim();
-    const table = configuredId
+    // Render may still contain a table id from an older Base copy. Prefer that
+    // id when it is valid, but recover automatically by the canonical table
+    // name when the table was recreated or replaced in Feishu.
+    const table = (configuredId
       ? tables.find((item) => item.table_id === configuredId)
-      : tables.find((item) => specification.names.includes(item.name.trim()));
+      : undefined)
+      || tables.find((item) => specification.names.includes(item.name.trim()));
     if (!table) {
       report.push({
         key: specification.key,
@@ -304,8 +308,6 @@ async function resolveTableId(
   acceptedNames: string[],
 ) {
   const configured = process.env[envName]?.trim();
-  if (configured) return configured;
-
   const { result, ok } = await feishuGet<FeishuTableListResponse>(
     `/bitable/v1/apps/${encodeURIComponent(appToken)}/tables?page_size=100`,
     token,
@@ -313,8 +315,19 @@ async function resolveTableId(
   if (!ok || result.code !== 0) {
     throw new Error(result.msg || "无法读取飞书数据表");
   }
-  const table = (result.data?.items || []).find((item) => acceptedNames.includes(item.name.trim()));
+  const tables = result.data?.items || [];
+  const configuredTable = configured
+    ? tables.find((item) => item.table_id === configured)
+    : undefined;
+  if (configuredTable) return configuredTable.table_id;
+
+  const table = tables.find((item) => acceptedNames.includes(item.name.trim()));
   if (!table) {
+    if (configured) {
+      throw new Error(
+        `${envName} 指向的飞书数据表已不存在，且没有找到数据表“${acceptedNames[0]}”`,
+      );
+    }
     throw new Error(`没有找到数据表“${acceptedNames[0]}”，请在 Render 配置 ${envName}`);
   }
   return table.table_id;

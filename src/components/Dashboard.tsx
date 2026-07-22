@@ -271,20 +271,21 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, complianceWarn
   const [documentCount, setDocumentCount] = React.useState(0);
   useEffect(() => {
     let active = true;
-    Promise.all([
+    Promise.allSettled([
       listMeetingsFromFeishu(),
       listPersonnelFromFeishu(),
       listDocumentsFromFeishu(),
-    ]).then(([meetingResult, personnelResult, documentResult]) => {
+    ]).then(([meetingsResult, personnelResult, documentsResult]) => {
       if (!active) return;
-      setMeetings(meetingResult.meetings.map((meeting) => toFrontendMeeting(meeting, new Map())));
-      setPersonnelCount(personnelResult.personnel.length);
-      setDocumentCount(documentResult.documents.length);
-    }).catch(() => {
-      if (!active) return;
-      setMeetings([]);
-      setPersonnelCount(0);
-      setDocumentCount(0);
+      if (meetingsResult.status === "fulfilled") {
+        setMeetings(meetingsResult.value.meetings.map((meeting) => toFrontendMeeting(meeting, new Map())));
+      }
+      if (personnelResult.status === "fulfilled") {
+        setPersonnelCount(personnelResult.value.personnel.length);
+      }
+      if (documentsResult.status === "fulfilled") {
+        setDocumentCount(documentsResult.value.documents.length);
+      }
     });
     return () => {
       active = false;

@@ -511,7 +511,9 @@ async function startServer() {
   // Safe Feishu connection check. It never returns credentials or table content.
   app.get("/api/feishu/status", async (_req, res) => {
     const fields = getFeishuConfiguration();
-    const configured = Object.values(fields).every(Boolean);
+    // The archive folder enables generated-file archiving, but is not needed
+    // to read meetings, minutes, documents, or personnel from the Base.
+    const configured = fields.appId && fields.appSecret && fields.baseAppToken;
 
     if (!configured) {
       return res.json({ configured: false, connected: false, fields });
@@ -519,7 +521,12 @@ async function startServer() {
 
     try {
       const tables = await listFeishuTables();
-      res.json({ configured: true, connected: true, tableCount: tables.length });
+      res.json({
+        configured: true,
+        connected: true,
+        archiveConfigured: fields.archiveFolder,
+        tableCount: tables.length,
+      });
     } catch (error) {
       res.status(502).json({
         configured: true,
