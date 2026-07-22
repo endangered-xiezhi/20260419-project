@@ -10,6 +10,11 @@ import { SystemSettings } from "./components/SystemSettings";
 import { PersonnelMatrix } from "./components/PersonnelMatrix";
 import { Search, Bell, User, LogOut, Settings, ChevronDown, X, FileText, Book, Briefcase, Calendar, AlertCircle } from "lucide-react";
 import { cn } from "./lib/utils";
+import {
+  listDocumentsFromFeishu,
+  listMeetingsFromFeishu,
+  type ApiMeeting,
+} from "./services/feishuMeetings";
 
 // 模糊搜索函数
 const fuzzySearch = (text: string, query: string): boolean => {
@@ -95,14 +100,9 @@ export default function App() {
 
   // 处理合规审查完成，将结果保存到文书中心
   const handleComplianceReviewComplete = (docId: string, score: number, reviewRecordId: string) => {
-    // 保存合规审查结果到 localStorage（与 DocumentCenter 相同的存储位置）
-    const savedResults = localStorage.getItem("corporate_doc_compliance_results");
-    const results = savedResults ? JSON.parse(savedResults) : {};
-    results[docId] = { docId, score, reviewRecordId };
-    localStorage.setItem("corporate_doc_compliance_results", JSON.stringify(results));
-    
     // 触发自定义事件通知文书中心刷新数据
     window.dispatchEvent(new CustomEvent('compliance-review-complete', { detail: { docId, score, reviewRecordId } }));
+    if (score < 90) setComplianceWarningCount((count) => count + 1);
   };
 
   // 监听浏览器前进/后退
@@ -133,27 +133,6 @@ export default function App() {
       localStorage.removeItem("corporate_active_meeting_id");
     }
   }, [selectedMeetingId]);
-
-  // 计算合规审查预警数量
-  useEffect(() => {
-    const saved = localStorage.getItem("corporate_compliance_records");
-    if (saved) {
-      const records = JSON.parse(saved);
-      // 计算有风险的记录数量
-      let warningCount = 0;
-      records.forEach((record: any) => {
-        if (record.aiResponse) {
-          const response = record.aiResponse.toLowerCase();
-          if (response.includes("风险") || response.includes("不合规") || response.includes("违规")) {
-            warningCount++;
-          }
-        }
-      });
-      setComplianceWarningCount(warningCount);
-    } else {
-      setComplianceWarningCount(0);
-    }
-  }, [activeTab]);
 
   // 点击外部关闭用户菜单
   useEffect(() => {
@@ -189,21 +168,12 @@ export default function App() {
   }, []);
 
   // 获取即将到来的会议提醒（提前10天）
-  const fetchMeetingReminders = () => {
+  const remindersFromMeetings = (meetings: ApiMeeting[]) => {
     const reminders: MeetingReminder[] = [];
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     
-    // 从 localStorage 读取会议数据
-    let meetings: any[] = [];
-    try {
-      const savedMeetings = localStorage.getItem("corporate_meetings_list");
-      meetings = savedMeetings ? JSON.parse(savedMeetings) : [];
-    } catch {
-      return reminders;
-    }
-    
-    meetings.forEach((meeting: any) => {
+    meetings.forEach((meeting) => {
       if (meeting.status === "已结束") return;
       
       const meetingDate = new Date(meeting.date);
@@ -230,29 +200,26 @@ export default function App() {
     return reminders;
   };
 
+  const refreshMeetingReminders = async () => {
+    try {
+      const { meetings } = await listMeetingsFromFeishu();
+      setMeetingReminders(remindersFromMeetings(meetings));
+    } catch {
+      setMeetingReminders([]);
+    }
+  };
+
   // 定期更新会议提醒
   useEffect(() => {
-    setMeetingReminders(fetchMeetingReminders());
+    void refreshMeetingReminders();
     
     // 每分钟更新一次
     const interval = setInterval(() => {
-      setMeetingReminders(fetchMeetingReminders());
+      void refreshMeetingReminders();
     }, 60000);
     
     return () => clearInterval(interval);
   }, [activeTab]); // 切换页面时也更新
-
-  // 监听其他页面/标签修改会议数据，重置已读状态以显示新提醒
-  useEffect(() => {
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === "corporate_meetings_list") {
-        // 会议数据发生变化，重置已读状态
-        setNotificationsRead(false);
-      }
-    };
-    window.addEventListener("storage", handleStorageChange);
-    return () => window.removeEventListener("storage", handleStorageChange);
-  }, []);
 
   // 侧边栏拖动调整宽度
   const startResize = (e: React.MouseEvent) => {
@@ -292,7 +259,7 @@ export default function App() {
   }, [isResizing, sidebarWidth]);
 
   // 全局搜索逻辑
-  const performGlobalSearch = (query: string) => {
+  const performGlobalSearch = async (query: string) => {
     setGlobalSearchQuery(query);
     
     if (!query.trim()) {
@@ -303,24 +270,21 @@ export default function App() {
 
     const results: SearchResult[] = [];
 
-    // 搜索文书生成
+    // 搜索飞书文书表
     try {
-      const savedDocs = localStorage.getItem("corporate_generated_documents");
-      if (savedDocs) {
-        const docs = JSON.parse(savedDocs);
-        docs.forEach((doc: any) => {
-          if (fuzzySearch(doc.title, query) || fuzzySearch(doc.content || "", query)) {
-            results.push({
-              id: doc.id,
-              title: doc.title,
-              source: "文书生成",
-              category: doc.category,
-              status: doc.status,
-              date: doc.date,
-            });
-          }
-        });
-      }
+      const { documents } = await listDocumentsFromFeishu();
+      documents.forEach((doc) => {
+        if (fuzzySearch(doc.title, query) || fuzzySearch(doc.documentType, query)) {
+          results.push({
+            id: doc.recordId,
+            title: doc.title,
+            source: "文书生成",
+            category: doc.documentType,
+            status: doc.status,
+            date: doc.createdAt,
+          });
+        }
+      });
     } catch {}
 
     // 搜索规则文件库
@@ -358,11 +322,9 @@ export default function App() {
     }
   };
 
-  const handleLogout = () => {
-    // 清除登录状态
-    localStorage.clear();
+  const handleLogout = async () => {
+    await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
     setShowUserMenu(false);
-    // 刷新页面或跳转到登录页
     window.location.reload();
   };
 
@@ -485,7 +447,7 @@ export default function App() {
                 onClick={(e) => { 
                   e.stopPropagation(); 
                   setShowNotifications(!showNotifications); 
-                  setMeetingReminders(fetchMeetingReminders());
+                  void refreshMeetingReminders();
                   // 点击后标记为已读
                   if (!showNotifications) {
                     const today = new Date().toDateString();

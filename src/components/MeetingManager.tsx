@@ -271,10 +271,7 @@ function DayPanel({ selectedDate, meetings, onClose }: {
 }
 
 export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, onNavigate }) => {
-  const [meetings, setMeetings] = useState<Meeting[]>(() => {
-    const saved = localStorage.getItem("corporate_meetings_list");
-    return saved ? JSON.parse(saved) : initialMeetings;
-  });
+  const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [filterType, setFilterType] = useState<MeetingType | "ALL">("ALL");
   const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
   const [calendarDate, setCalendarDate] = useState(new Date());
@@ -325,34 +322,15 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
 
   // 获取法务联系人名字（从人员列表中查找法务角色）
   const getLegalContactName = (): string => {
-    const saved = localStorage.getItem("corporate_personnel_matrix");
-    if (saved) {
-      const list: Personnel[] = JSON.parse(saved);
-      const legal = list.find(p => p.role === "法务" || p.role === "法务负责人" || p.organization === "法务部");
-      if (legal) return legal.name;
-    }
+    const legal = personnelList.find(
+      p => p.role === "法务" || p.role === "法务负责人" || p.organization === "法务部",
+    );
+    if (legal) return legal.name;
     return "公司法务部"; // 默认法务名字
   };
 
   // 获取与会人员列表（排序：董监高在前，单一身份股东按持股比例在后）
-  const [personnelList, setPersonnelList] = useState<Personnel[]>(() => {
-    const saved = localStorage.getItem("corporate_personnel_matrix");
-    const list: Personnel[] = saved ? JSON.parse(saved) : [];
-    return [...list].sort((a, b) => {
-      const priorityA = getPersonnelSortPriority(a);
-      const priorityB = getPersonnelSortPriority(b);
-      if (priorityA !== priorityB) return priorityA - priorityB;
-      // 同类别内，使用固定排序（sortOrder）
-      if (a.sortOrder !== undefined && b.sortOrder !== undefined) {
-        return a.sortOrder - b.sortOrder;
-      }
-      // 同类别内，股东按持股份额从高到低排序
-      if (a.isShareholder && b.isShareholder) {
-        return (b.shareholding || 0) - (a.shareholding || 0);
-      }
-      return 0;
-    });
-  });
+  const [personnelList, setPersonnelList] = useState<Personnel[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -364,7 +342,6 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
           return priority || a.name.localeCompare(b.name, "zh-CN");
         });
         setPersonnelList(sorted);
-        localStorage.setItem("corporate_personnel_matrix", JSON.stringify(sorted));
       })
       .catch(() => {
         // 飞书人员接口尚未部署或暂时不可用时，继续使用本地缓存。
@@ -378,10 +355,6 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
     () => new Map(personnelList.map((person) => [person.name, person.id])),
     [personnelList],
   );
-
-  useEffect(() => {
-    localStorage.setItem("corporate_meetings_list", JSON.stringify(meetings));
-  }, [meetings]);
 
   useEffect(() => {
     let active = true;

@@ -96,6 +96,20 @@ export const SystemSettings: React.FC<SystemSettingsProps> = ({
 
 // 账户设置组件
 const AccountSettings: React.FC = () => {
+  const [feishuSession, setFeishuSession] = useState<{
+    configured: boolean;
+    authenticated: boolean;
+    user?: { name?: string; enName?: string; openId?: string; userId?: string };
+    accessTokenExpiresAt?: string;
+  } | null>(null);
+  const loadFeishuSession = () => {
+    fetch("/api/auth/session")
+      .then((response) => response.json())
+      .then(setFeishuSession)
+      .catch(() => setFeishuSession({ configured: false, authenticated: false }));
+  };
+  useEffect(loadFeishuSession, []);
+
   const [accountInfo, setAccountInfo] = useState({
     email: "admin@zhili-sanhui.com",
     displayName: "系统管理员",
@@ -169,6 +183,50 @@ const AccountSettings: React.FC = () => {
             {isEditing ? "保存修改" : "编辑资料"}
           </button>
         </div>
+      </section>
+
+      <section className="mck-card">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-blue-50 flex items-center justify-center text-blue-600">
+              <Database size={20} />
+            </div>
+            <div>
+              <h3 className="text-lg font-serif font-bold">飞书账户连接</h3>
+              <p className="text-xs text-mck-navy/50">
+                {feishuSession?.authenticated
+                  ? `已连接：${feishuSession.user?.name || feishuSession.user?.enName || feishuSession.user?.openId || "飞书用户"}`
+                  : feishuSession?.configured
+                    ? "连接后生成任务会记录实际操作者"
+                    : "服务端尚未配置 OAuth 回调和会话密钥"}
+              </p>
+            </div>
+          </div>
+          {feishuSession?.authenticated ? (
+            <button
+              onClick={async () => {
+                await fetch("/api/auth/logout", { method: "POST" });
+                loadFeishuSession();
+              }}
+              className="px-4 py-2 text-xs font-bold border border-red-200 text-red-700 hover:bg-red-50"
+            >
+              断开连接
+            </button>
+          ) : (
+            <button
+              onClick={() => window.location.assign("/api/auth/feishu/start")}
+              disabled={!feishuSession?.configured}
+              className="px-4 py-2 text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              连接飞书
+            </button>
+          )}
+        </div>
+        {feishuSession?.accessTokenExpiresAt && (
+          <p className="mt-3 text-[10px] text-mck-navy/40">
+            当前用户凭证到期：{new Date(feishuSession.accessTokenExpiresAt).toLocaleString("zh-CN")}
+          </p>
+        )}
       </section>
 
       {/* 安全设置 */}
@@ -282,7 +340,15 @@ const SystemSettingsContent: React.FC = () => {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed && typeof parsed === 'object') {
-          return { ...defaultSettings, ...parsed };
+          return {
+            ...defaultSettings,
+            ...parsed,
+            baiduApiKey: "",
+            baiduSecretKey: "",
+            deepseekApiKey: "",
+            geminiApiKey: "",
+            yuanqiApiKey: "",
+          };
         }
       }
     } catch (error) {
@@ -308,7 +374,10 @@ const SystemSettingsContent: React.FC = () => {
 
     const timer = setTimeout(() => {
       try {
-        localStorage.setItem("corporate_ai_settings", JSON.stringify(settings));
+        localStorage.setItem("corporate_ai_settings", JSON.stringify({
+          ragThreshold: settings.ragThreshold,
+          autoSync: settings.autoSync,
+        }));
         setSaveStatus("success");
       } catch (error) {
         setSaveStatus("error");
@@ -328,7 +397,10 @@ const SystemSettingsContent: React.FC = () => {
   const handleSave = () => {
     setIsSaving(true);
     try {
-      localStorage.setItem("corporate_ai_settings", JSON.stringify(settings));
+      localStorage.setItem("corporate_ai_settings", JSON.stringify({
+        ragThreshold: settings.ragThreshold,
+        autoSync: settings.autoSync,
+      }));
       setSaveStatus("success");
     } catch (error) {
       setSaveStatus("error");
@@ -388,9 +460,9 @@ const SystemSettingsContent: React.FC = () => {
               <input 
                 type="password" 
                 value={settings.baiduApiKey}
-                onChange={e => setSettings({...settings, baiduApiKey: e.target.value})}
+                disabled
                 className="w-full border border-mck-border px-4 py-2 text-sm font-mono focus:outline-none focus:border-mck-blue"
-                placeholder="输入百度 API Key"
+                placeholder="仅在服务端环境变量中配置"
               />
             </div>
             <div className="space-y-2">
@@ -398,9 +470,9 @@ const SystemSettingsContent: React.FC = () => {
               <input 
                 type="password" 
                 value={settings.baiduSecretKey}
-                onChange={e => setSettings({...settings, baiduSecretKey: e.target.value})}
+                disabled
                 className="w-full border border-mck-border px-4 py-2 text-sm font-mono focus:outline-none focus:border-mck-blue"
-                placeholder="输入百度 Secret Key"
+                placeholder="仅在服务端环境变量中配置"
               />
             </div>
           </div>
@@ -428,9 +500,9 @@ const SystemSettingsContent: React.FC = () => {
                 <input 
                   type="password" 
                   value={settings.deepseekApiKey}
-                  onChange={e => setSettings({...settings, deepseekApiKey: e.target.value})}
+                  disabled
                   className="w-full border border-mck-border px-4 py-2 text-sm font-mono focus:outline-none focus:border-mck-blue"
-                  placeholder="输入 DeepSeek API Key"
+                  placeholder="仅在服务端环境变量中配置"
                 />
               </div>
               <div className="space-y-2">
@@ -438,9 +510,9 @@ const SystemSettingsContent: React.FC = () => {
                 <input 
                   type="password" 
                   value={settings.geminiApiKey}
-                  onChange={e => setSettings({...settings, geminiApiKey: e.target.value})}
+                  disabled
                   className="w-full border border-mck-border px-4 py-2 text-sm font-mono focus:outline-none focus:border-mck-blue"
-                  placeholder="留空则使用系统内置 Key"
+                  placeholder="仅在服务端环境变量中配置"
                 />
               </div>
             </div>
@@ -487,9 +559,9 @@ const SystemSettingsContent: React.FC = () => {
                 <input 
                   type="text" 
                   value={settings.yuanqiBotId}
-                  onChange={e => setSettings({...settings, yuanqiBotId: e.target.value})}
+                  disabled
                   className="w-full border border-mck-border px-4 py-2 text-sm font-mono focus:outline-none focus:border-purple-500"
-                  placeholder="输入腾讯元器 API ID"
+                  placeholder="仅在服务端 YUANQI_BOT_ID 配置"
                 />
               </div>
               <div className="space-y-2">
@@ -497,9 +569,9 @@ const SystemSettingsContent: React.FC = () => {
                 <input 
                   type="password" 
                   value={settings.yuanqiApiKey}
-                  onChange={e => setSettings({...settings, yuanqiApiKey: e.target.value})}
+                  disabled
                   className="w-full border border-mck-border px-4 py-2 text-sm font-mono focus:outline-none focus:border-purple-500"
-                  placeholder="输入腾讯元器 API KEY"
+                  placeholder="仅在服务端 YUANQI_API_KEY 配置"
                 />
               </div>
             </div>
@@ -508,25 +580,17 @@ const SystemSettingsContent: React.FC = () => {
             <div className="flex items-center gap-4 pt-2">
               <button
                 onClick={async () => {
-                  if (!settings.yuanqiApiKey || !settings.yuanqiBotId) {
-                    setTestStatus('error');
-                    setTestMessage('请先填写 API ID 和 API KEY');
-                    return;
-                  }
                   setTestStatus('testing');
                   setTestMessage('');
                   try {
-                    const { testYuanqiConnection } = await import('../services/yuanqiApi');
-                    const result = await testYuanqiConnection({
-                      apiKey: settings.yuanqiApiKey,
-                      botId: settings.yuanqiBotId
-                    });
-                    if (result.success) {
+                    const response = await fetch("/api/yuanqi/status");
+                    const result = await response.json();
+                    if (response.ok && result.configured) {
                       setTestStatus('success');
-                      setTestMessage(result.message);
+                      setTestMessage("服务端腾讯元器凭证已配置");
                     } else {
                       setTestStatus('error');
-                      setTestMessage(result.message);
+                      setTestMessage(result.error || "服务端尚未配置腾讯元器凭证");
                     }
                   } catch (e: any) {
                     setTestStatus('error');

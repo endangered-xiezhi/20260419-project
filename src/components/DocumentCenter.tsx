@@ -1,9 +1,28 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { FileText, Download, Printer, Check, Edit3, Save, X, FileCheck, Plus, ChevronDown, ChevronRight, FolderOpen, Eye, Clock, History, Sparkles, File, Loader2, AlertCircle, Trash2, Users, Calendar, FileDown, Mail, Send, Undo2, ShieldCheck, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { generateWordDocument, generateRegulationWord } from "@/utils/documentGenerator";
-import { downloadMeetingPackage, requestMeetingPackage, type MeetingPackageType } from "@/services/meetingPackage";
-import { getMeetingFromFeishu, listMeetingsFromFeishu, type ApiMeeting } from "@/services/feishuMeetings";
+import {
+  generateWordDocument,
+  generateRegulationWord,
+  regulationXmlFiles,
+} from "@/utils/documentGenerator";
+import {
+  downloadMeetingPackage,
+  listDocumentJobs,
+  requestMeetingPackage,
+  retryDocumentJob,
+  waitForDocumentJob,
+  type DocumentJob,
+  type MeetingPackageType,
+} from "@/services/meetingPackage";
+import {
+  getMeetingFromFeishu,
+  listDocumentsFromFeishu,
+  listMeetingsFromFeishu,
+  listPersonnelFromFeishu,
+  type ApiMeeting,
+} from "@/services/feishuMeetings";
+import type { Personnel } from "../types";
 import { fallbackCompanyName, normalizeCompanyName } from "@/utils/companyName";
 import {
   createVotingDocument,
@@ -59,6 +78,7 @@ interface GeneratedDocument {
   sourceRecordId?: string;
   feishuRecordId?: string;
   syncStatus?: 'synced' | 'local';
+  remoteDownloadUrl?: string;
 }
 
 // 导入的会议纪要记录类型
@@ -128,6 +148,7 @@ interface MinutesFormData {
   shareholderRatio: string;
   representedShares: string;
   votingRatio: string;
+  shareholders: Array<{ name: string; shares: string; shareholding: string }>;
 }
 
 interface NoticeFormData {
@@ -148,10 +169,12 @@ interface ResolutionFormData {
   representedShares: string;
   votingRatio: string;
   resolutionContent: string;
+  shareholders: Array<{ name: string; shares: string; shareholding: string }>;
 }
 
 interface SigninFormData {
   meetingDate: string;
+  shareholders: Array<{ name: string; shares: string; shareholding: string }>;
 }
 
 interface ProxyFormData {
@@ -202,6 +225,7 @@ interface BoardVotingFormData {
   votingDate: string; // 表决日期
   companyName: string; // 公司名称
   meetingNumber: string; // 会议届次
+  directors: { name: string; position: string }[];
 }
 
 // 董事会会议记录表单
@@ -215,6 +239,7 @@ interface BoardMinutesFormData {
   hostName: string; // 主持人姓名
   recorderName: string; // 记录人姓名
   expectedDirectors: string; // 应到董事人数
+  directors: { name: string; position: string }[];
 }
 
 // 董事会决议表单
@@ -226,6 +251,7 @@ interface BoardResolutionFormData {
   convenerHostName: string; // 召集人/主持人姓名
   expectedDirectors: string; // 应到董事人数
   resolutionDate: string; // 决议日期
+  directors: { name: string; position: string }[];
 }
 
 // 董事会签到表表单
@@ -246,6 +272,7 @@ interface BoardNoticeFormData {
   contactPhone: string; // 联系电话
   proposalName: string; // 审议的议案名称
   noticeDate: string; // 通知落款日期
+  directors: { name: string; position: string }[];
 }
 
 type FormData = VotingFormData | VotingStatsFormData | AgendaFormData | MinutesFormData | NoticeFormData | ResolutionFormData | SigninFormData | ProxyFormData | ProposalFormData | BoardProposalFormData | BoardVotingFormData | BoardMinutesFormData | BoardResolutionFormData | BoardSigninFormData | BoardNoticeFormData;
@@ -265,6 +292,7 @@ interface DocumentCenterProps {
   };
   onEmailSaved?: (email: EmailDocument) => void;
   onEmailClosed?: () => void;
+  onSendComplete?: () => void;
   onComplianceReview?: (docId?: string) => void; // 跳转到合规审查
   onNavigateToKnowledge?: () => void; // 跳转到规则文件库
 }
@@ -346,12 +374,6 @@ const saveMeetingTitle = (title: string) => {
   }
 };
 
-// 获取与会人员列表
-const getAttendees = (): { name: string; phone: string; email: string }[] => {
-  const saved = localStorage.getItem("corporate_attendees");
-  return saved ? JSON.parse(saved) : [];
-};
-
 // 生成文书内容
 const generateDocumentContent = (meetingTitle: string, type: string, typeName: string, formData?: FormData): string => {
   const date = new Date().toLocaleDateString('zh-CN');
@@ -374,7 +396,10 @@ const generateDocumentContent = (meetingTitle: string, type: string, typeName: s
 
     minutes: (() => {
       const data = formData as MinutesFormData;
-      return `${meetingTitle}会议记录\n\n时间：${data?.meetingDate || '____年__月__日'} ${data?.meetingTime || '__时'}\n\n大会主持人：${data?.hostName || '______________'}\n大会记录人：${data?.recorderName || '______________'}\n\n出席会议的股东及股东代表人数：${data?.attendeeCount || '____'}名\n股东总数：${data?.totalShareholders || '____'}名  占比：${data?.shareholderRatio || '___'}%\n代表股份数：${data?.representedShares || '____________'}股  占有表决权股份总数比例：${data?.votingRatio || '___'}%\n\n会议内容：\n\n\n决议事项：\n`;
+      const signatures = data?.shareholders?.length
+        ? data.shareholders.map((shareholder) => `${shareholder.name}：________________`).join('\n')
+        : '________________';
+      return `${meetingTitle}会议记录\n\n时间：${data?.meetingDate || '____年__月__日'} ${data?.meetingTime || '__时'}\n\n大会主持人：${data?.hostName || '______________'}\n大会记录人：${data?.recorderName || '______________'}\n\n出席会议的股东及股东代表人数：${data?.attendeeCount || '____'}名\n股东总数：${data?.totalShareholders || '____'}名  占比：${data?.shareholderRatio || '___'}%\n代表股份数：${data?.representedShares || '____________'}股  占有表决权股份总数比例：${data?.votingRatio || '___'}%\n\n会议内容：\n\n\n决议事项：\n\n与会股东签字：\n${signatures}\n`;
     })(),
     
     notice: (() => {
@@ -386,12 +411,20 @@ const generateDocumentContent = (meetingTitle: string, type: string, typeName: s
     
     resolution: (() => {
       const data = formData as ResolutionFormData;
-      return `${meetingTitle}决议\n\n${data?.meetingDate || '____年__月__日'} ${data?.meetingTime || '__时'}，本公司召开股东会，会议审议通过了以下事项：\n\n决议内容：\n${data?.resolutionContent || '（请填写决议内容）'}\n\n出席会议的股东或股东代表人数：${data?.attendeeCount || '____'}名\n股东总数：${data?.totalShareholders || '____'}名  占比：${data?.shareholderRatio || '___'}%\n代表股份数：${data?.representedShares || '____________'}股  占有表决权股份总数比例：${data?.votingRatio || '___'}%\n\n表决结果：同意票占有效表决票数的___%\n\n与会股东签字：\n`;
+      const signatures = data?.shareholders?.length
+        ? data.shareholders.map((shareholder) => `${shareholder.name}：________________`).join('\n')
+        : '________________';
+      return `${meetingTitle}决议\n\n${data?.meetingDate || '____年__月__日'} ${data?.meetingTime || '__时'}，本公司召开股东会，会议审议通过了以下事项：\n\n决议内容：\n${data?.resolutionContent || '（请填写决议内容）'}\n\n出席会议的股东或股东代表人数：${data?.attendeeCount || '____'}名\n股东总数：${data?.totalShareholders || '____'}名  占比：${data?.shareholderRatio || '___'}%\n代表股份数：${data?.representedShares || '____________'}股  占有表决权股份总数比例：${data?.votingRatio || '___'}%\n\n表决结果：同意票占有效表决票数的___%\n\n与会股东签字：\n${signatures}\n`;
     })(),
     
     signin: (() => {
       const data = formData as SigninFormData;
-      return `${meetingTitle}签到表\n\n会议日期：${data?.meetingDate || '____年__月__日'}\n\n| 序号 | 股东名称/姓名 | 持股数 | 签名 | 备注 |\n|------|-------------|-------|------|------|\n| 1    |             |       |      |      |\n| 2    |             |       |      |      |\n| 3    |             |       |      |      |\n`;
+      const rows = data?.shareholders?.length
+        ? data.shareholders.map((shareholder, index) =>
+            `| ${index + 1} | ${shareholder.name} | ${shareholder.shares} | ${shareholder.shareholding ? `${shareholder.shareholding}%` : ''} | |`,
+          ).join('\n')
+        : '| 1 | | | | |';
+      return `${meetingTitle}签到表\n\n会议日期：${data?.meetingDate || '____年__月__日'}\n\n| 序号 | 股东名称/姓名 | 持股数 | 持股比例 | 签名 |\n|------|-------------|-------|---------|------|\n${rows}\n`;
     })(),
     
     proxy: (() => {
@@ -426,13 +459,14 @@ ${data?.proposalDate || '某年某月某日'}
     // 董事会表决票
     board_voting: (() => {
       const data = formData as BoardVotingFormData;
-      const company = fallbackCompanyName(data?.companyName);
-      const meetingNum = data?.meetingNumber || '第一';
-      return `${company}第${meetingNum}届董事会第三次会议表决票
+      const signatureLines = data?.directors?.length
+        ? data.directors.map((director) => `董事${director.name}签名：________________`).join('\n')
+        : '董事签名：________________';
+      return `${meetingTitle}表决票
 
 请根据表决意见，在对应的表决栏中用"√"表示。
 
-董事签名：________________
+${signatureLines}
 表决日期：${data?.votingDate || '____年__月__日'}
 `;
     })(),
@@ -440,9 +474,10 @@ ${data?.proposalDate || '某年某月某日'}
     // 董事会会议记录
     board_minutes: (() => {
       const data = formData as BoardMinutesFormData;
-      const company = fallbackCompanyName(data?.companyName);
-      const meetingNum = data?.meetingNumber || '第一';
-      return `${company}第${meetingNum}届董事会第三次会议记录
+      const signatureLines = data?.directors?.length
+        ? data.directors.map((director) => `${director.name}（${director.position}）：________________`).join('\n')
+        : '董事签名：________________';
+      return `${meetingTitle}会议记录
 
 会议时间：${data?.meetingDate || '____年__月__日'} ${data?.meetingTime || '__时'}
 会议地点：公司会议室
@@ -454,16 +489,17 @@ ${data?.proposalDate || '某年某月某日'}
 一、会议主持人宣布会议开始。
 
 （本页无正文）
-董事签名：________________
+${signatureLines}
 `;
     })(),
 
     // 董事会决议
     board_resolution: (() => {
       const data = formData as BoardResolutionFormData;
-      const company = fallbackCompanyName(data?.companyName);
-      const meetingNum = data?.meetingNumber || '第一';
-      return `${company}第${meetingNum}届董事会第三次会议决议
+      const signatureLines = data?.directors?.length
+        ? data.directors.map((director) => `${director.name}（${director.position}）：________________`).join('\n')
+        : '________________';
+      return `${meetingTitle}决议
 
 会议时间：${data?.meetingDate || '____年__月__日'} ${data?.meetingTime || '__时'}
 召集人/主持人：${data?.convenerHostName || '某某某'}
@@ -471,24 +507,24 @@ ${data?.proposalDate || '某年某月某日'}
 
 决议日期：${data?.resolutionDate || '____年__月__日'}
 
-出席会议董事签名：________________
+出席会议董事签名：
+${signatureLines}
 `;
     })(),
 
     // 董事会签到表
     board_signin: (() => {
       const data = formData as BoardSigninFormData;
-      const company = fallbackCompanyName(data?.companyName);
-      const meetingNum = data?.meetingNumber || '第一';
-      return `${company}第${meetingNum}届董事会第三次会议签到表
+      const rows = data?.directors?.length
+        ? data.directors.map((director, index) => `| ${index + 1} | ${director.name} | ${director.position} | |`).join('\n')
+        : '| 1 | | 董事 | |';
+      return `${meetingTitle}签到表
 
 时间：${data?.meetingDate || '____年__月__日'}
 
 | 序号 | 姓名 | 职务 | 签名 |
 |------|-----|------|------|
-| 1 | 某某某 | 董事 | |
-| 2 | 某某某 | 董事 | |
-| 3 | 某某某 | 董事 | |
+${rows}
 `;
     })(),
 
@@ -496,10 +532,12 @@ ${data?.proposalDate || '某年某月某日'}
     board_notice: (() => {
       const data = formData as BoardNoticeFormData;
       const company = fallbackCompanyName(data?.companyName);
-      const meetingNum = data?.meetingNumber || '第一';
-      return `${company}第${meetingNum}届董事会第三次会议通知
+      const recipients = data?.directors?.length
+        ? data.directors.map((director) => director.name).join('、')
+        : '各位董事';
+      return `${meetingTitle}会议通知
 
-各位董事：
+${recipients}：
 
 会议时间：${data?.meetingDate || '____年__月__日'} ${data?.meetingTime || '__时'}
 联系人：${data?.contactName || '某某某'}
@@ -1428,13 +1466,13 @@ const DocumentFormModal: React.FC<{
       case 'agenda':
         return { meetingDate: today, meetingTime: '' } as AgendaFormData;
       case 'minutes':
-        return { meetingDate: today, meetingTime: '', hostName: '', recorderName: '', attendeeCount: '', totalShareholders: '', shareholderRatio: '', representedShares: '', votingRatio: '' } as MinutesFormData;
+        return { meetingDate: today, meetingTime: '', hostName: '', recorderName: '', attendeeCount: '', totalShareholders: '', shareholderRatio: '', representedShares: '', votingRatio: '', shareholders: [] } as MinutesFormData;
       case 'notice':
         return { meetingDate: today, meetingTime: '', contactName: '', contactPhone: '', contactEmail: '', attendees: [] } as NoticeFormData;
       case 'resolution':
-        return { meetingDate: today, meetingTime: '', attendeeCount: '', totalShareholders: '', shareholderRatio: '', representedShares: '', votingRatio: '', resolutionContent: '' } as ResolutionFormData;
+        return { meetingDate: today, meetingTime: '', attendeeCount: '', totalShareholders: '', shareholderRatio: '', representedShares: '', votingRatio: '', resolutionContent: '', shareholders: [] } as ResolutionFormData;
       case 'signin':
-        return { meetingDate: today } as SigninFormData;
+        return { meetingDate: today, shareholders: [] } as SigninFormData;
       case 'proxy':
         return { principalName: '', principalId: '', agentName: '', agentId: '', proxyDate: today } as ProxyFormData;
       case 'proposal':
@@ -1442,21 +1480,22 @@ const DocumentFormModal: React.FC<{
       case 'board_proposal':
         return { companyName: companyName || '', planningPeriod: '', planningYears: '', coreDirection: '', proposalDate: today } as BoardProposalFormData;
       case 'board_voting':
-        return { votingDate: today, companyName: companyName || '', meetingNumber: '' } as BoardVotingFormData;
+        return { votingDate: today, companyName: companyName || '', meetingNumber: '', directors: [] } as BoardVotingFormData;
       case 'board_minutes':
-        return { meetingDate: today, meetingTime: '', companyName: companyName || '', meetingNumber: '', attendeeNames: '', convenerName: '', hostName: '', recorderName: '', expectedDirectors: '' } as BoardMinutesFormData;
+        return { meetingDate: today, meetingTime: '', companyName: companyName || '', meetingNumber: '', attendeeNames: '', convenerName: '', hostName: '', recorderName: '', expectedDirectors: '', directors: [] } as BoardMinutesFormData;
       case 'board_resolution':
-        return { meetingDate: today, meetingTime: '', companyName: companyName || '', meetingNumber: '', convenerHostName: '', expectedDirectors: '', resolutionDate: today } as BoardResolutionFormData;
+        return { meetingDate: today, meetingTime: '', companyName: companyName || '', meetingNumber: '', convenerHostName: '', expectedDirectors: '', resolutionDate: today, directors: [] } as BoardResolutionFormData;
       case 'board_signin':
         return { meetingDate: today, companyName: companyName || '', meetingNumber: '', directors: [{ name: '', position: '董事' }] } as BoardSigninFormData;
       case 'board_notice':
-        return { meetingDate: today, meetingTime: '', companyName: companyName || '', meetingNumber: '', contactName: '', contactPhone: '', proposalName: '', noticeDate: today } as BoardNoticeFormData;
+        return { meetingDate: today, meetingTime: '', companyName: companyName || '', meetingNumber: '', contactName: '', contactPhone: '', proposalName: '', noticeDate: today, directors: [] } as BoardNoticeFormData;
       default:
         return {} as FormData;
     }
   });
 
-  const availableAttendees = getAttendees();
+  const [personnel, setPersonnel] = useState<Personnel[]>([]);
+  const availableAttendees = personnel.map(({ name, phone = '', email = '' }) => ({ name, phone, email }));
   const [votingContext, setVotingContext] = useState<VotingContext | null>(null);
   const [availableMeetings, setAvailableMeetings] = useState<ApiMeeting[]>([]);
   const [activeMeetingId, setActiveMeetingId] = useState(meetingId || '');
@@ -1466,6 +1505,54 @@ const DocumentFormModal: React.FC<{
   const [actionMessage, setActionMessage] = useState('');
   const [actionError, setActionError] = useState('');
   const [selectedOpinion, setSelectedOpinion] = useState<"同意" | "反对" | "弃权" | ''>('');
+
+  useEffect(() => {
+    let active = true;
+    Promise.all([
+      listPersonnelFromFeishu(),
+      meetingId?.startsWith('rec') ? getMeetingFromFeishu(meetingId) : Promise.resolve(null),
+    ]).then(([personnelResult, meetingResult]) => {
+      if (!active) return;
+      const records = personnelResult.personnel;
+      const meeting = meetingResult?.meeting || null;
+      setPersonnel(records);
+      const selectedNames = new Set(meeting?.participantNames || []);
+      const selected = selectedNames.size ? records.filter((person) => selectedNames.has(person.name)) : records;
+      const shareholders = selected.filter((person) => person.isShareholder);
+      const directors = selected.filter((person) => ["董事长", "董事", "独立董事"].includes(person.role));
+      const shareholdingTotal = shareholders.reduce((sum, person) => sum + (person.shareholding || 0), 0);
+      const sharesTotal = shareholders.reduce((sum, person) => sum + (person.shares || 0), 0);
+      const meetingDate = meeting?.date || new Date().toISOString().split('T')[0];
+
+      setFormData((current) => {
+        const next = { ...current } as Record<string, unknown>;
+        if ('meetingDate' in next) next.meetingDate = meetingDate;
+        if ('meetingTime' in next) next.meetingTime = meeting?.startTime || next.meetingTime;
+        if ('meetingLocation' in next) next.meetingLocation = meeting?.location || next.meetingLocation;
+        if ('contactName' in next) next.contactName = meeting?.contactName || next.contactName;
+        if ('contactPhone' in next) next.contactPhone = meeting?.contactPhone || next.contactPhone;
+        if ('contactEmail' in next) next.contactEmail = meeting?.contactEmail || next.contactEmail;
+        if ('attendees' in next) next.attendees = selected.map(({ name, phone = '', email = '' }) => ({ name, phone, email }));
+        if ('attendeeNames' in next) next.attendeeNames = selected.map((person) => person.name).join('、');
+        if ('attendeeCount' in next) next.attendeeCount = String(selected.length);
+        if ('totalShareholders' in next) next.totalShareholders = String(records.filter((person) => person.isShareholder).length);
+        if ('shareholderRatio' in next) next.shareholderRatio = String(shareholdingTotal);
+        if ('votingRatio' in next) next.votingRatio = String(shareholdingTotal);
+        if ('representedShares' in next) next.representedShares = String(sharesTotal);
+        if ('expectedDirectors' in next) next.expectedDirectors = String(directors.length);
+        if ('directors' in next) next.directors = directors.map((person) => ({ name: person.name, position: person.role }));
+        if ('shareholders' in next) next.shareholders = shareholders.map((person) => ({
+          name: person.name,
+          shares: person.shares === undefined ? '' : String(person.shares),
+          shareholding: person.shareholding === undefined ? '' : String(person.shareholding),
+        }));
+        return next as unknown as FormData;
+      });
+    }).catch((error) => {
+      if (active) setActionError(error instanceof Error ? error.message : '会议与人员数据读取失败');
+    });
+    return () => { active = false; };
+  }, [meetingId]);
 
   useEffect(() => {
     if (template.id !== 'voting') return;
@@ -1844,7 +1931,7 @@ const DocumentFormModal: React.FC<{
   );
 };
 
-export const DocumentCenter: React.FC<DocumentCenterProps> = ({ meetingId, editEmailFor, onEmailSaved, onEmailClosed, onComplianceReview, onNavigateToKnowledge }) => {
+export const DocumentCenter: React.FC<DocumentCenterProps> = ({ meetingId, editEmailFor, onEmailSaved, onEmailClosed, onSendComplete, onComplianceReview, onNavigateToKnowledge }) => {
   const [showGenerator, setShowGenerator] = useState(false);
   const [showImporter, setShowImporter] = useState(false); // 文书导入弹窗
   // 文书生成：一级分类（会议/制度）
@@ -1862,26 +1949,18 @@ export const DocumentCenter: React.FC<DocumentCenterProps> = ({ meetingId, editE
   const [expandedTemplates, setExpandedTemplates] = useState(false);
   // 制度文件标题（用于制度文件生成）
   const [regulationTitle, setRegulationTitle] = useState('');
-  const [generatedDocs, setGeneratedDocs] = useState<GeneratedDocument[]>(() => {
-    const saved = localStorage.getItem("corporate_generated_docs");
-    return saved ? JSON.parse(saved) : [];
-  });
-  const [emails, setEmails] = useState<EmailDocument[]>(() => {
-    const saved = localStorage.getItem("corporate_generated_emails");
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [generatedDocs, setGeneratedDocs] = useState<GeneratedDocument[]>([]);
+  const [emails, setEmails] = useState<EmailDocument[]>([]);
   const [previewDoc, setPreviewDoc] = useState<GeneratedDocument | null>(null);
   const [formTemplate, setFormTemplate] = useState<DocumentTemplate | null>(null);
   const [packageBusyKey, setPackageBusyKey] = useState<string | null>(null);
+  const [latestDocumentJob, setLatestDocumentJob] = useState<DocumentJob | null>(null);
   // 制度文件编辑弹窗状态
   const [showRegulationEditor, setShowRegulationEditor] = useState(false);
   const [regulationEditContent, setRegulationEditContent] = useState('');
   const [regulationEditDoc, setRegulationEditDoc] = useState<GeneratedDocument | null>(null);
   // 合规审查结果状态
-  const [complianceResults, setComplianceResults] = useState<Record<string, ComplianceResult>>(() => {
-    const saved = localStorage.getItem("corporate_doc_compliance_results");
-    return saved ? JSON.parse(saved) : {};
-  });
+  const [complianceResults, setComplianceResults] = useState<Record<string, ComplianceResult>>({});
   // 导入规则文件库弹窗状态
   const [showImportRuleLibrary, setShowImportRuleLibrary] = useState(false);
   const [ruleLibraryDocToImport, setRuleLibraryDocToImport] = useState<GeneratedDocument | null>(null);
@@ -1919,6 +1998,64 @@ export const DocumentCenter: React.FC<DocumentCenterProps> = ({ meetingId, editE
       active = false;
     };
   }, [meetingId]);
+
+  useEffect(() => {
+    const activeMeetingId = selectedDocumentMeetingId || meetingId || undefined;
+    if (!activeMeetingId?.startsWith("rec")) return;
+    let active = true;
+    listDocumentJobs(activeMeetingId)
+      .then(({ jobs }) => {
+        if (active && jobs[0]) setLatestDocumentJob(jobs[0]);
+      })
+      .catch(() => {
+        // 任务历史不可用不影响会议和单份文书操作。
+      });
+    return () => {
+      active = false;
+    };
+  }, [meetingId, selectedDocumentMeetingId]);
+
+  useEffect(() => {
+    const activeMeetingId = selectedDocumentMeetingId || meetingId || undefined;
+    if (!activeMeetingId?.startsWith("rec")) return;
+    let active = true;
+    listDocumentsFromFeishu(activeMeetingId)
+      .then(({ documents }) => {
+        if (!active) return;
+        const meeting = documentMeetings.find((item) => item.id === activeMeetingId);
+        const meetingType: GeneratedDocument["meetingType"] = meeting?.type.includes("股东")
+          ? "shareholder"
+          : meeting?.type.includes("监事")
+            ? "supervisor"
+            : "board";
+        const remoteDocuments: GeneratedDocument[] = documents.map((document) => ({
+          id: `feishu-${document.recordId}`,
+          name: document.title,
+          type: document.documentType,
+          typeName: document.documentType,
+          meetingTitle: meeting?.title || meetingTitle || "飞书会议",
+          meetingType,
+          level1Category: "meeting",
+          level2Category: meetingType,
+          date: document.createdAt || new Date().toISOString().slice(0, 10),
+          feishuRecordId: document.recordId,
+          syncStatus: "synced",
+          remoteDownloadUrl: document.attachment
+            ? `/api/feishu/documents/${encodeURIComponent(document.recordId)}/download`
+            : undefined,
+        }));
+        setGeneratedDocs((current) => [
+          ...remoteDocuments,
+          ...current.filter((document) => !document.feishuRecordId),
+        ]);
+      })
+      .catch(() => {
+        // 文书表暂不可用时保留本次浏览器会话内的草稿。
+      });
+    return () => {
+      active = false;
+    };
+  }, [documentMeetings, meetingId, selectedDocumentMeetingId]);
 
   useEffect(() => {
     if (!showGenerator || level1Category !== 'meeting') return;
@@ -1982,15 +2119,6 @@ export const DocumentCenter: React.FC<DocumentCenterProps> = ({ meetingId, editE
 
       if (!importedRecord || !importedRecord.title || !importedRecord.sourceRecordId) return;
 
-      // 防重复检查：检查是否已存在相同的 sourceRecordId
-      const existingCheck = localStorage.getItem("corporate_generated_docs");
-      if (existingCheck) {
-        const existingDocs: GeneratedDocument[] = JSON.parse(existingCheck);
-        if (existingDocs.some(doc => doc.sourceRecordId === importedRecord.sourceRecordId)) {
-          return; // 已存在，跳过
-        }
-      }
-
       // 创建导入的文书记录
       const newDoc: GeneratedDocument = {
         id: `minutes-imported-${importedRecord.id || Date.now()}`,
@@ -2007,11 +2135,9 @@ export const DocumentCenter: React.FC<DocumentCenterProps> = ({ meetingId, editE
         sourceRecordId: importedRecord.sourceRecordId,
       };
 
-      // 添加到文书列表并保存到 localStorage
       setGeneratedDocs(prev => {
-        const updated = [newDoc, ...prev];
-        localStorage.setItem("corporate_generated_docs", JSON.stringify(updated));
-        return updated;
+        if (prev.some(doc => doc.sourceRecordId === importedRecord.sourceRecordId)) return prev;
+        return [newDoc, ...prev];
       });
     };
 
@@ -2032,7 +2158,6 @@ export const DocumentCenter: React.FC<DocumentCenterProps> = ({ meetingId, editE
           }
           return doc;
         });
-        localStorage.setItem("corporate_generated_docs", JSON.stringify(updated));
         return updated;
       });
     };
@@ -2074,7 +2199,6 @@ export const DocumentCenter: React.FC<DocumentCenterProps> = ({ meetingId, editE
         }
         return doc;
       });
-      localStorage.setItem("corporate_generated_docs", JSON.stringify(updated));
       return updated;
     });
 
@@ -2156,18 +2280,9 @@ ${new Date().toLocaleDateString('zh-CN')}`,
     }
   }, [editEmailFor]);
 
-  // 保存邮件到本地存储
-  useEffect(() => {
-    localStorage.setItem("corporate_generated_emails", JSON.stringify(emails));
-  }, [emails]);
-
   useEffect(() => {
     setMeetingHistory(getMeetingHistory());
   }, []);
-
-  useEffect(() => {
-    localStorage.setItem("corporate_generated_docs", JSON.stringify(generatedDocs));
-  }, [generatedDocs]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -2211,7 +2326,7 @@ ${new Date().toLocaleDateString('zh-CN')}`,
 
     try {
       // 获取XML文件并解析为可编辑文本
-      const xmlFileName = (await import('@/utils/documentGenerator')).regulationXmlFiles[template.id];
+      const xmlFileName = regulationXmlFiles[template.id];
       const xmlPath = `/文书xml/制度类/${xmlFileName}`;
       const response = await fetch(xmlPath);
       
@@ -2632,6 +2747,7 @@ ${new Date().toLocaleDateString('zh-CN')}`,
         meetingTitle: title.trim(),
         meetingType,
         values: collectMeetingPackageValues(docs),
+        onProgress: setLatestDocumentJob,
       });
       saveMeetingTitle(title.trim());
       setMeetingHistory(getMeetingHistory());
@@ -2644,6 +2760,10 @@ ${new Date().toLocaleDateString('zh-CN')}`,
   };
 
   const handleDownload = async (doc: GeneratedDocument) => {
+    if (doc.remoteDownloadUrl) {
+      downloadMeetingPackage(doc.remoteDownloadUrl);
+      return;
+    }
     // 使用Word文档生成器
     try {
       let blob: Blob;
@@ -2698,7 +2818,6 @@ ${new Date().toLocaleDateString('zh-CN')}`,
     const result: ComplianceResult = { docId, score, reviewRecordId };
     setComplianceResults(prev => {
       const updated = { ...prev, [docId]: result };
-      localStorage.setItem("corporate_doc_compliance_results", JSON.stringify(updated));
       return updated;
     });
   };
@@ -2820,6 +2939,20 @@ ${new Date().toLocaleDateString('zh-CN')}`,
     return [];
   };
 
+  const handleRetryDocumentJob = async () => {
+    if (!latestDocumentJob || latestDocumentJob.status !== 'failed') return;
+    setPackageBusyKey(`retry:${latestDocumentJob.id}`);
+    try {
+      const { job } = await retryDocumentJob(latestDocumentJob.id);
+      const completed = await waitForDocumentJob(job, setLatestDocumentJob);
+      if (completed.output?.downloadUrl) downloadMeetingPackage(completed.output.downloadUrl);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : '任务重试失败');
+    } finally {
+      setPackageBusyKey(null);
+    }
+  };
+
   // 处理文件选择
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -2875,7 +3008,6 @@ ${new Date().toLocaleDateString('zh-CN')}`,
         };
         setGeneratedDocs(prev => {
           const updated = [newDoc, ...prev];
-          localStorage.setItem("corporate_generated_docs", JSON.stringify(updated));
           return updated;
         });
       } else {
@@ -2886,7 +3018,7 @@ ${new Date().toLocaleDateString('zh-CN')}`,
           type: importDocType,
           typeName: getDocTypesByCategory(importMeetingCategory).find(d => d.id === importDocType)?.name || importDocType,
           meetingTitle: importMeetingTitle,
-          meetingType: importMeetingCategory,
+          meetingType: importMeetingCategory === 'other' ? undefined : importMeetingCategory,
           level1Category: 'meeting',
           level2Category: importMeetingCategory,
           date: new Date().toISOString().split('T')[0],
@@ -2896,7 +3028,6 @@ ${new Date().toLocaleDateString('zh-CN')}`,
         // 添加到文档列表
         setGeneratedDocs(prev => {
           const updated = [newDoc, ...prev];
-          localStorage.setItem("corporate_generated_docs", JSON.stringify(updated));
           return updated;
         });
 
@@ -4070,6 +4201,71 @@ ${email.body}`;
         </div>
       )}
 
+      {latestDocumentJob && (
+        <div className={cn(
+          "mb-4 rounded-xl border p-4",
+          latestDocumentJob.status === 'failed'
+            ? "border-red-200 bg-red-50"
+            : latestDocumentJob.status === 'succeeded'
+              ? "border-emerald-200 bg-emerald-50"
+              : "border-cyan-200 bg-cyan-50",
+        )}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 text-sm font-bold text-mck-navy">
+                {latestDocumentJob.status === 'queued' || latestDocumentJob.status === 'running' ? (
+                  <Loader2 size={16} className="animate-spin text-cyan-700" />
+                ) : latestDocumentJob.status === 'succeeded' ? (
+                  <Check size={16} className="text-emerald-700" />
+                ) : (
+                  <AlertCircle size={16} className="text-red-700" />
+                )}
+                文书生成任务 · {latestDocumentJob.progress}%
+              </div>
+              <p className="mt-1 truncate text-xs text-mck-navy/70">{latestDocumentJob.message}</p>
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/80">
+                <div
+                  className={cn(
+                    "h-full rounded-full transition-all",
+                    latestDocumentJob.status === 'failed' ? "bg-red-500" : "bg-cyan-700",
+                  )}
+                  style={{ width: `${Math.max(3, latestDocumentJob.progress)}%` }}
+                />
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {latestDocumentJob.output?.folderUrl && (
+                <a
+                  href={latestDocumentJob.output.folderUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs font-bold text-emerald-800 hover:bg-emerald-100"
+                >
+                  打开飞书文件夹
+                </a>
+              )}
+              {latestDocumentJob.status === 'succeeded' && latestDocumentJob.output?.downloadUrl && (
+                <button
+                  onClick={() => downloadMeetingPackage(latestDocumentJob.output!.downloadUrl)}
+                  className="rounded-lg bg-mck-navy px-3 py-2 text-xs font-bold text-white hover:bg-mck-blue"
+                >
+                  下载 ZIP
+                </button>
+              )}
+              {latestDocumentJob.status === 'failed' && (
+                <button
+                  onClick={handleRetryDocumentJob}
+                  disabled={packageBusyKey !== null}
+                  className="rounded-lg bg-red-700 px-3 py-2 text-xs font-bold text-white hover:bg-red-800 disabled:opacity-50"
+                >
+                  重新生成
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 在线文件夹 - 滚动锚点 */}
       <div id="document-folder-anchor" className="h-0 w-full" />
       
@@ -4392,7 +4588,7 @@ ${email.body}`;
                 <p className="text-sm text-mck-navy/60 mb-6">
                   {isUpdate 
                     ? `「${ruleLibraryDocToImport.name}」的内容已更新，确定要更新规则文件库中的版本吗？`
-                    : `确定要将「${ruleLibraryDocToImport.name}」导入到规则文件库中的「公司章程制度」板块吗？`
+                    : `确定要将「${ruleLibraryDocToImport.name}」导入到规则文件库中的「公司内部规范性文件」板块吗？`
                   }
                 </p>
                 <div className="flex items-center justify-center gap-3">

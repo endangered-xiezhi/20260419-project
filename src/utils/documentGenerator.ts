@@ -13,7 +13,6 @@ import {
   VerticalAlign,
   WidthType,
 } from 'docx';
-import type { VotingFormData, VotingStatsFormData, AgendaFormData, MinutesFormData, NoticeFormData, ResolutionFormData, SigninFormData, ProxyFormData, ProposalFormData } from '@/components/DocumentCenter';
 import { fallbackCompanyName } from '@/utils/companyName';
 
 // 读取XML文件
@@ -611,7 +610,7 @@ export const generateWordDocument = async (
   meetingTitle: string,
   formData: any
 ): Promise<Blob> => {
-  companyName = fallbackCompanyName(companyName);
+  const companyName = fallbackCompanyName(formData?.companyName);
   if (type === 'voting') {
     return generateVotingWordDocument(meetingTitle, formData);
   }
@@ -901,7 +900,7 @@ export const downloadWordDocument = async (
   formData: any,
   fileName: string
 ) => {
-  const blob = await generateWordDocument(type, formData);
+  const blob = await generateWordDocument(type, meetingTitle, formData);
   const url = URL.createObjectURL(blob);
   
   const a = document.createElement('a');

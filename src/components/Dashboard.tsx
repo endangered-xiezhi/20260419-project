@@ -3,6 +3,12 @@ import { StatCard } from "./StatCard";
 import { Meeting } from "../types";
 import { Clock, Calendar as CalendarIcon, ChevronRight, ChevronLeft, List, X, CheckCircle2, AlertCircle, Users, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  listDocumentsFromFeishu,
+  listMeetingsFromFeishu,
+  listPersonnelFromFeishu,
+  toFrontendMeeting,
+} from "@/services/feishuMeetings";
 
 const initialMeetings: Meeting[] = [
   { id: "1", title: "2026年第一次临时股东会会议", type: "股东会", date: "2026-04-10", status: "筹备中", complianceScore: 98, notifiedDays: 11 },
@@ -247,10 +253,7 @@ function DayPanel({
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, complianceWarningCount = 0 }) => {
-  const [meetings] = useState<Meeting[]>(() => {
-    const saved = localStorage.getItem("corporate_meetings_list");
-    return saved ? JSON.parse(saved) : initialMeetings;
-  });
+  const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [viewMode, setViewMode] = React.useState<"list" | "calendar">("calendar");
   const [calendarDate, setCalendarDate] = React.useState(new Date());
   const [selectedDate, setSelectedDate] = React.useState(new Date().toISOString().split("T")[0]);
@@ -262,19 +265,30 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, complianceWarn
   };
 
   // 获取与会人员数量
-  const personnelCount = React.useMemo(() => {
-    const saved = localStorage.getItem("corporate_personnel_matrix");
-    return saved ? JSON.parse(saved).length : 0;
-  }, []);
+  const [personnelCount, setPersonnelCount] = React.useState(0);
 
   // 获取文书中心文书数量
   const [documentCount, setDocumentCount] = React.useState(0);
   useEffect(() => {
-    const saved = localStorage.getItem("corporate_generated_docs");
-    if (saved) {
-      const docs = JSON.parse(saved);
-      setDocumentCount(docs.length);
-    }
+    let active = true;
+    Promise.all([
+      listMeetingsFromFeishu(),
+      listPersonnelFromFeishu(),
+      listDocumentsFromFeishu(),
+    ]).then(([meetingResult, personnelResult, documentResult]) => {
+      if (!active) return;
+      setMeetings(meetingResult.meetings.map((meeting) => toFrontendMeeting(meeting, new Map())));
+      setPersonnelCount(personnelResult.personnel.length);
+      setDocumentCount(documentResult.documents.length);
+    }).catch(() => {
+      if (!active) return;
+      setMeetings([]);
+      setPersonnelCount(0);
+      setDocumentCount(0);
+    });
+    return () => {
+      active = false;
+    };
   }, []);
 
   // 统计数据

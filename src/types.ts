@@ -84,9 +84,10 @@ export interface KnowledgeItem {
 export interface Personnel {
   id: string;
   name: string;
-  role: "董事长" | "董事" | "独立董事" | "监事" | "董事会秘书" | "总经理" | "副总经理" | "财务负责人" | "无" | "法人股东" | "自然人股东";
-  organization: "董事会" | "监事会" | "管理层" | "无" | "股东";
+  role: "董事长" | "董事" | "独立董事" | "监事" | "董事会秘书" | "总经理" | "副总经理" | "财务负责人" | "法务" | "法务负责人" | "无" | "法人股东" | "自然人股东";
+  organization: "董事会" | "监事会" | "管理层" | "法务部" | "无" | "股东";
   isShareholder?: boolean; // 是否股东
+  shares?: number; // 持股数量（股）
   shareholding?: number; // 股权占比，百分比
   termStart?: string;
   termEnd?: string;

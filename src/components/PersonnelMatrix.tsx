@@ -2,6 +2,12 @@ import React, { useState, useEffect } from "react";
 import { Users, UserPlus, Search, Trash2, Edit3, ShieldCheck, ShieldAlert, Calendar, Save, X, Filter, Building2, Briefcase, AlertTriangle, GitBranch, Percent, User } from "lucide-react";
 import { Personnel } from "../types";
 import { cn } from "@/lib/utils";
+import {
+  createPersonnelInFeishu,
+  deletePersonnelFromFeishu,
+  listPersonnelFromFeishu,
+  updatePersonnelInFeishu,
+} from "@/services/feishuMeetings";
 
 // 排序优先级：董事 > 监事 > 高级管理人员 > 单一身份股东
 // 说明：所有 isShareholder=true 的人员统一排最后，股东之间按持股份额排序
@@ -31,46 +37,27 @@ const initialPersonnel: Personnel[] = [
 ];
 
 export const PersonnelMatrix: React.FC = () => {
-  // 初始化数据：优先使用 localStorage，否则使用初始数据
-  const getInitialData = (): Personnel[] => {
-    try {
-      const saved = localStorage.getItem("corporate_personnel_matrix");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          // 检查是否需要更新 sortOrder（兼容旧数据）
-          const needsUpdate = parsed.some(p => p.sortOrder === undefined);
-          if (needsUpdate) {
-            // 合并初始数据中的 sortOrder 到现有数据
-            const updated = parsed.map(p => {
-              const initial = initialPersonnel.find(ip => ip.id === p.id);
-              return initial ? { ...p, sortOrder: initial.sortOrder } : p;
-            });
-            localStorage.setItem("corporate_personnel_matrix", JSON.stringify(updated));
-            return updated;
-          }
-          return parsed;
-        }
-      }
-    } catch (e) {
-      console.warn("数据解析失败，使用默认数据");
-    }
-    // 如果 localStorage 为空或无效，使用初始数据并立即保存
-    const data = initialPersonnel;
-    localStorage.setItem("corporate_personnel_matrix", JSON.stringify(data));
-    return data;
-  };
-  
-  const [personnel, setPersonnel] = useState<Personnel[]>(getInitialData);
+  const [personnel, setPersonnel] = useState<Personnel[]>([]);
+  const [syncError, setSyncError] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [filterOrg, setFilterOrg] = useState<string>("全部");
   const [isEditing, setIsEditing] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [currentPerson, setCurrentPerson] = useState<Partial<Personnel>>({});
 
+  const refreshPersonnel = async () => {
+    try {
+      const { personnel: records } = await listPersonnelFromFeishu();
+      setPersonnel(records);
+      setSyncError("");
+    } catch (error) {
+      setSyncError(error instanceof Error ? error.message : "飞书人员读取失败");
+    }
+  };
+
   useEffect(() => {
-    localStorage.setItem("corporate_personnel_matrix", JSON.stringify(personnel));
-  }, [personnel]);
+    void refreshPersonnel();
+  }, []);
 
   const filteredPersonnel = personnel
     .filter(p => 
@@ -94,41 +81,54 @@ export const PersonnelMatrix: React.FC = () => {
       return 0;
     });
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!currentPerson.name) return;
-    
-    if (currentPerson.id) {
-      setPersonnel(personnel.map(p => p.id === currentPerson.id ? { ...p, ...currentPerson } as Personnel : p));
-    } else {
-      const newPerson: Personnel = {
-        id: Date.now().toString(),
-        name: currentPerson.name,
-        role: currentPerson.role as any,
-        organization: currentPerson.organization as any || "董事会",
-        isShareholder: currentPerson.isShareholder || false,
-        shareholding: currentPerson.isShareholder ? (currentPerson.shareholding || 0) : undefined,
-        termStart: currentPerson.termStart || new Date().toISOString().split('T')[0],
-        termEnd: currentPerson.termEnd || "",
-        isIndependent: !!currentPerson.isIndependent,
-        conflictOfInterest: currentPerson.conflictOfInterest || [],
-        status: "在职",
-        phone: currentPerson.phone || "",
-        email: currentPerson.email || "",
-      };
-      setPersonnel([newPerson, ...personnel]);
+    const isDirector = ["董事长", "董事", "独立董事"].includes(currentPerson.role || "");
+    if (currentPerson.isShareholder && (currentPerson.shares === undefined || currentPerson.shareholding === undefined)) {
+      setSyncError("股东必须填写持股数量和持股比例");
+      return;
     }
-    setIsEditing(false);
-    setCurrentPerson({});
+    const input = {
+      name: currentPerson.name,
+      role: currentPerson.role,
+      organization: currentPerson.organization || "董事会",
+      status: currentPerson.status || "在任",
+      phone: currentPerson.phone || "",
+      email: currentPerson.email || "",
+      termStart: currentPerson.termStart,
+      termEnd: currentPerson.termEnd,
+      isIndependent: isDirector && Boolean(currentPerson.isIndependent),
+      isShareholder: Boolean(currentPerson.isShareholder),
+      shares: currentPerson.isShareholder ? currentPerson.shares : undefined,
+      shareholding: currentPerson.isShareholder ? currentPerson.shareholding : undefined,
+    };
+    try {
+      if (currentPerson.id) {
+        await updatePersonnelInFeishu(currentPerson.id, input);
+      } else {
+        await createPersonnelInFeishu(input);
+      }
+      await refreshPersonnel();
+      setIsEditing(false);
+      setCurrentPerson({});
+    } catch (error) {
+      setSyncError(error instanceof Error ? error.message : "人员保存失败");
+    }
   };
 
   const handleDelete = (id: string) => {
     setDeleteConfirmId(id);
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (deleteConfirmId) {
-      setPersonnel(personnel.filter(p => p.id !== deleteConfirmId));
-      setDeleteConfirmId(null);
+      try {
+        await deletePersonnelFromFeishu(deleteConfirmId);
+        await refreshPersonnel();
+        setDeleteConfirmId(null);
+      } catch (error) {
+        setSyncError(error instanceof Error ? error.message : "人员删除失败");
+      }
     }
   };
 
@@ -146,6 +146,13 @@ export const PersonnelMatrix: React.FC = () => {
           新增成员
         </button>
       </header>
+
+      {syncError && (
+        <div className="flex items-center gap-2 border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <AlertTriangle size={16} />
+          {syncError}
+        </div>
+      )}
 
       {isEditing && (
         <div className="fixed inset-0 bg-mck-navy/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -190,7 +197,8 @@ export const PersonnelMatrix: React.FC = () => {
                     onChange={e => {
                       const newRole = e.target.value as any;
                       const shouldBeIndependent = newRole === "独立董事";
-                      setCurrentPerson({...currentPerson, role: newRole, isIndependent: shouldBeIndependent || currentPerson.isIndependent});
+                      const isDirector = ["董事长", "董事", "独立董事"].includes(newRole);
+                      setCurrentPerson({...currentPerson, role: newRole, isIndependent: isDirector ? (shouldBeIndependent || currentPerson.isIndependent) : false});
                     }}
                     className="w-full border border-mck-border px-4 py-2 text-sm focus:outline-none focus:border-mck-blue bg-white"
                   >
@@ -222,7 +230,15 @@ export const PersonnelMatrix: React.FC = () => {
                   <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/40">是否股东</label>
                   <select 
                     value={currentPerson.isShareholder ? "是" : "否"} 
-                    onChange={e => setCurrentPerson({...currentPerson, isShareholder: e.target.value === "是", shareholding: e.target.value === "是" ? (currentPerson.shareholding || 0) : undefined})}
+                    onChange={e => {
+                      const isShareholder = e.target.value === "是";
+                      setCurrentPerson({
+                        ...currentPerson,
+                        isShareholder,
+                        shares: isShareholder ? currentPerson.shares : undefined,
+                        shareholding: isShareholder ? currentPerson.shareholding : undefined,
+                      });
+                    }}
                     className="w-full border border-mck-border px-4 py-2 text-sm focus:outline-none focus:border-mck-blue bg-white"
                   >
                     <option value="否">否</option>
@@ -230,18 +246,32 @@ export const PersonnelMatrix: React.FC = () => {
                   </select>
                   {/* 股权占比输入框 */}
                   {currentPerson.isShareholder && (
-                    <div className="mt-2">
+                    <div className="mt-2 grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/40">持股数量（股）</label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={currentPerson.shares ?? ""}
+                          onChange={e => setCurrentPerson({...currentPerson, shares: e.target.value === "" ? undefined : Number(e.target.value)})}
+                          className="w-full border border-mck-border px-4 py-2 text-sm focus:outline-none focus:border-mck-blue bg-white"
+                          placeholder="请输入持股数量"
+                        />
+                      </div>
+                      <div>
                       <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/40">持股比例 (%)</label>
-                      <input 
+                      <input
                         type="number" 
                         min="0"
                         max="100"
                         step="0.01"
-                        value={currentPerson.shareholding || ""} 
-                        onChange={e => setCurrentPerson({...currentPerson, shareholding: parseFloat(e.target.value) || 0})}
+                        value={currentPerson.shareholding ?? ""}
+                        onChange={e => setCurrentPerson({...currentPerson, shareholding: e.target.value === "" ? undefined : Number(e.target.value)})}
                         className="w-full border border-mck-border px-4 py-2 text-sm focus:outline-none focus:border-mck-blue bg-white"
                         placeholder="请输入持股比例"
                       />
+                      </div>
                     </div>
                   )}
                 </div>
@@ -331,31 +361,6 @@ export const PersonnelMatrix: React.FC = () => {
                   />
                 </div>
               </div>
-
-              {/* 股权占比 - 仅对股东显示 */}
-              {currentPerson.organization === "股东" && (
-                <div className="grid grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-mck-navy/40">股权占比 (%)</label>
-                    <input 
-                      type="number" 
-                      min="0"
-                      max="100"
-                      step="0.01"
-                      value={currentPerson.shareholding || ""} 
-                      onChange={e => setCurrentPerson({...currentPerson, shareholding: parseFloat(e.target.value) || 0})}
-                      className="w-full border border-mck-border px-4 py-2 text-sm focus:outline-none focus:border-mck-blue bg-white"
-                      placeholder="请输入股权占比"
-                    />
-                  </div>
-                  <div className="flex items-end">
-                    <div className="p-3 bg-orange-50 border border-orange-200 rounded text-[10px] text-orange-700">
-                      <span className="font-bold">💡 提示：</span>
-                      股东可通过出席股东会行使表决权，持股比例决定话语权。
-                    </div>
-                  </div>
-                </div>
-              )}
 
               <div className="flex justify-end gap-4 pt-4">
                 <button onClick={() => setIsEditing(false)} className="px-6 py-2 text-xs font-bold uppercase tracking-widest text-mck-navy/60 hover:text-mck-navy">取消</button>
@@ -472,6 +477,10 @@ export const PersonnelMatrix: React.FC = () => {
             <div className="space-y-3 pt-4 border-t border-mck-border">
               {p.isShareholder ? (
                 <>
+                  <div className="flex items-center justify-between text-[10px] uppercase tracking-widest">
+                    <span className="text-mck-navy/40">持股数量</span>
+                    <span className="font-bold text-orange-600">{p.shares ?? 0} 股</span>
+                  </div>
                   <div className="flex items-center justify-between text-[10px] uppercase tracking-widest">
                     <span className="text-mck-navy/40">持股比例</span>
                     <span className="font-bold text-orange-600">{p.shareholding}%</span>

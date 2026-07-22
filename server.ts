@@ -16,42 +16,63 @@ import {
   type ComplianceMeetingContext,
 } from "./lib/complianceReview.js";
 import {
+  createFeishuArchiveFolder,
+  createFeishuGeneratedDocument,
   createFeishuMeeting,
+  createFeishuPersonnel,
   createFeishuProposals,
   createFeishuVotingDocument,
   deleteFeishuMeeting,
+  deleteFeishuPersonnel,
   downloadFeishuBitableAttachment,
   getFeishuConfiguration,
   getFeishuDocumentForReview,
   getFeishuMeeting,
+  getFeishuSchemaReport,
   getFeishuMeetingSourceBundle,
   getFeishuVotingContext,
+  isFeishuArchiveConfigured,
   listFeishuPersonnel,
+  listFeishuDocuments,
   listFeishuMeetings,
   listFeishuTables,
   submitFeishuVote,
+  syncFeishuDocumentJob,
+  updateFeishuMeetingArchive,
+  updateFeishuPersonnel,
+  uploadFeishuDriveFile,
   updateFeishuMeeting,
   updateFeishuDocumentReview,
   type FeishuMeetingInput,
+  type FeishuPersonnelInput,
   type FeishuVoteInput,
   type FeishuVotingDocumentInput,
   type GeneratedProposalInput,
 } from "./lib/feishu.js";
-import { createMeetingPackage, type MeetingPackageType } from "./lib/meetingPackage.js";
+import {
+  createMeetingPackage,
+  getMeetingTemplateVersion,
+  type MeetingPackageInput,
+  type MeetingPackageType,
+} from "./lib/meetingPackage.js";
+import {
+  DocumentJobStore,
+  type DocumentJob,
+  type DocumentJobInput,
+} from "./lib/documentJobs.js";
+import { FeishuOAuthStore, readCookie } from "./lib/feishuAuth.js";
 
 // 腾讯云配置 - 从环境变量读取
 const TENCENT_SECRET_ID = process.env.TENCENT_SECRET_ID || "";
 const TENCENT_SECRET_KEY = process.env.TENCENT_SECRET_KEY || "";
 
 // 腾讯云 SDK（动态导入）
-let AsrClient: any, CreateRecTaskRequest: any, DescribeTaskStatusRequest: any;
+let AsrClient: any;
 
 async function initTencentSDK() {
   const tencentcloud = await import("tencentcloud-sdk-nodejs");
   const asrModule = tencentcloud.asr.v20190614;
   AsrClient = asrModule.Client;
-  CreateRecTaskRequest = asrModule.CreateRecTaskRequest;
-  DescribeTaskStatusRequest = asrModule.DescribeTaskStatusRequest;
 }
 
 const __filename = fileURLToPath(import.meta.url);
@@ -68,28 +89,29 @@ async function startServer() {
 
   app.use(express.json());
 
-  // CORS 中间件 - 允许前端跨域请求
+  const allowedOrigins = new Set(
+    (process.env.ALLOWED_ORIGINS || "http://localhost:3001")
+      .split(",")
+      .map((origin) => origin.trim())
+      .filter(Boolean),
+  );
+
+  // CORS 仅允许明确配置的前端域名，并允许发送 HttpOnly 会话 Cookie。
   app.use((req, res, next) => {
-    // 允许所有来源的跨域请求（开发环境）
-    res.header('Access-Control-Allow-Origin', '*');
+    const origin = req.headers.origin;
+    if (origin && allowedOrigins.has(origin)) {
+      res.header("Access-Control-Allow-Origin", origin);
+      res.header("Access-Control-Allow-Credentials", "true");
+      res.header("Vary", "Origin");
+    }
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
     
     // 处理 OPTIONS 预检请求
     if (req.method === 'OPTIONS') {
       return res.status(200).end();
     }
     
-    next();
-  });
-
-  // 请求日志中间件 - 帮助调试
-  app.use((req, res, next) => {
-    if (req.path.includes('yuanqi')) {
-      console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
-      console.log('Headers:', JSON.stringify(req.headers, null, 2));
-      console.log('Body:', JSON.stringify(req.body, null, 2));
-    }
     next();
   });
 
@@ -102,6 +124,284 @@ async function startServer() {
     await fs.mkdir(uploadsDir, { recursive: true });
   }
   await fs.mkdir(meetingPackagesDir, { recursive: true });
+  const documentJobStore = new DocumentJobStore(join(uploadsDir, "document-jobs.json"));
+  await documentJobStore.initialize();
+  const feishuOAuthStore = new FeishuOAuthStore(join(uploadsDir, "oauth-sessions.json"));
+  await feishuOAuthStore.initialize();
+  const activeDocumentJobs = new Set<string>();
+  let documentJobQueue = Promise.resolve();
+
+  const displayFeishuValue = (value: unknown): string => {
+    if (value === null || value === undefined) return "";
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+      return String(value);
+    }
+    if (Array.isArray(value)) return value.map(displayFeishuValue).filter(Boolean).join("、");
+    if (typeof value === "object") {
+      const item = value as Record<string, unknown>;
+      return displayFeishuValue(item.text || item.name || item.value || item.link || "");
+    }
+    return "";
+  };
+
+  async function resolveMeetingPackageInput(input: DocumentJobInput): Promise<MeetingPackageInput> {
+    let feishuMeeting: Awaited<ReturnType<typeof getFeishuMeeting>> | null = null;
+    let votingContext: Awaited<ReturnType<typeof getFeishuVotingContext>> | null = null;
+    let personnel: Awaited<ReturnType<typeof listFeishuPersonnel>> = [];
+    if (input.meetingId?.startsWith("rec")) {
+      feishuMeeting = await getFeishuMeeting(input.meetingId);
+      votingContext = await getFeishuVotingContext(input.meetingId);
+      personnel = await listFeishuPersonnel();
+    }
+
+    const values: Record<string, string | number | boolean | null> = {};
+    if (feishuMeeting) {
+      for (const [fieldName, fieldValue] of Object.entries(feishuMeeting.fields)) {
+        values[`会议表.${fieldName}`] = displayFeishuValue(fieldValue);
+      }
+      Object.assign(values, {
+        "会议表.主题": feishuMeeting.title,
+        "会议表.会议类型": feishuMeeting.type,
+        "会议表.时间": feishuMeeting.date,
+        "会议表.时间|日期": feishuMeeting.date,
+        "会议表.时间|时间": feishuMeeting.startTime,
+        "会议表.会议地点": feishuMeeting.location,
+        "会议表.会务联系人": feishuMeeting.contactName,
+        "会议表.会务联系电话": feishuMeeting.contactPhone,
+        "会议表.会务邮箱": feishuMeeting.contactEmail,
+        "会议表.状态": feishuMeeting.status,
+        "会议表.参会人员": feishuMeeting.participantNames.join("、"),
+      });
+      if (feishuMeeting.companyName) values["公司主体表.公司名称"] = feishuMeeting.companyName;
+      if (feishuMeeting.expectedAttendance !== undefined) {
+        values["人员汇总.应到人数"] = feishuMeeting.expectedAttendance;
+      }
+      if (feishuMeeting.actualAttendance !== undefined) {
+        values["人员汇总.实到人数"] = feishuMeeting.actualAttendance;
+      }
+      const firstProposal = votingContext?.proposals[0];
+      if (firstProposal) {
+        values["议案表.议案编号"] = firstProposal.number;
+        values["议案表.议案标题"] = firstProposal.title;
+        values["议案表.议案正文"] = firstProposal.content;
+      }
+    }
+
+    const selectedPersonnel = feishuMeeting?.participantNames.length
+      ? personnel.filter((person) => feishuMeeting?.participantNames.includes(person.name))
+      : personnel.filter((person) => input.meetingType === "shareholder"
+        ? person.isShareholder
+        : input.meetingType === "board"
+          ? person.role.includes("董事")
+          : person.role.includes("监事"));
+    const personnelShareholders = selectedPersonnel.filter((person) => person.isShareholder);
+    const votingShareholders = votingContext?.shareholders || [];
+
+    return {
+      meetingTitle: input.meetingTitle || feishuMeeting?.title || "未命名会议",
+      meetingType: input.meetingType,
+      values: { ...values, ...(input.values || {}) },
+      proposals: votingContext?.proposals || [],
+      participants: selectedPersonnel.map((person) => ({
+        name: person.name,
+        role: person.role,
+        attended: "",
+      })),
+      shareholders: personnelShareholders.length
+        ? personnelShareholders.map((person) => ({
+            name: person.name,
+            type: person.role,
+            shares: person.shares,
+            shareholding: person.shareholding,
+          }))
+        : votingShareholders.map((shareholder) => ({
+            name: shareholder.name,
+            shares: shareholder.shares,
+            shareholding: shareholder.shareholding,
+          })),
+    };
+  }
+
+  async function bestEffortSyncDocumentJob(job: DocumentJob) {
+    const configuration = getFeishuConfiguration();
+    if (!configuration.appId || !configuration.appSecret || !configuration.baseAppToken) return;
+    try {
+      const result = await syncFeishuDocumentJob({
+        recordId: job.feishuJobRecordId,
+        jobId: job.id,
+        idempotencyKey: job.idempotencyKey,
+        meetingId: job.input.meetingId,
+        status: {
+          queued: "待处理",
+          running: "生成中",
+          succeeded: "成功",
+          failed: "失败",
+        }[job.status],
+        progress: job.progress,
+        attempt: job.attempt,
+        message: job.message,
+        error: job.error,
+        folderUrl: job.output?.folderUrl,
+        requestedBy: job.input.requestedBy,
+      });
+      if (result.recordId && result.recordId !== job.feishuJobRecordId) {
+        await documentJobStore.update(job.id, { feishuJobRecordId: result.recordId });
+      }
+    } catch (error) {
+      console.warn(`生成任务 ${job.id} 写回飞书任务表失败：`, error);
+    }
+  }
+
+  async function processDocumentJob(jobId: string) {
+    if (activeDocumentJobs.has(jobId)) return;
+    activeDocumentJobs.add(jobId);
+    try {
+      let job = documentJobStore.get(jobId);
+      if (!job || job.status !== "queued") return;
+      job = await documentJobStore.update(jobId, {
+        status: "running",
+        progress: 5,
+        message: "正在读取会议数据和模板",
+        startedAt: new Date().toISOString(),
+      });
+      await bestEffortSyncDocumentJob(job);
+
+      const packageInput = await resolveMeetingPackageInput(job.input);
+      const templateVersion = await getMeetingTemplateVersion(job.input.meetingType);
+      const meetingPackage = await createMeetingPackage(packageInput);
+      const packagePath = join(meetingPackagesDir, `${job.id}.zip`);
+      await fs.writeFile(packagePath, meetingPackage.buffer);
+      job = await documentJobStore.update(jobId, {
+        progress: 35,
+        message: "Word 文书和 ZIP 已生成",
+        output: {
+          fileCount: meetingPackage.fileCount,
+          documentNames: meetingPackage.documentNames,
+          downloadUrl: `/api/meetings/packages/${job.id}?filename=${encodeURIComponent(meetingPackage.fileName)}`,
+          archivedToFeishu: false,
+          ...job.output,
+        },
+      });
+
+      if (!isFeishuArchiveConfigured()) {
+        job = await documentJobStore.update(jobId, {
+          status: "succeeded",
+          archiveStatus: "not_configured",
+          progress: 100,
+          message: "文书已生成；配置飞书归档文件夹后可自动归档",
+          completedAt: new Date().toISOString(),
+        });
+        await bestEffortSyncDocumentJob(job);
+        return;
+      }
+
+      let folderToken = job.output?.folderToken;
+      let folderUrl = job.output?.folderUrl;
+      if (!folderToken || !folderUrl) {
+        const folder = await createFeishuArchiveFolder(packageInput.meetingTitle);
+        folderToken = folder.folderToken;
+        folderUrl = folder.folderUrl;
+        job = await documentJobStore.update(jobId, {
+          progress: 42,
+          message: "飞书会议归档文件夹已创建",
+          output: { ...job.output!, folderToken, folderUrl },
+        });
+      }
+
+      const archivedDocuments = [...(job.output?.archivedDocuments || [])];
+      for (let index = 0; index < meetingPackage.documents.length; index += 1) {
+        const document = meetingPackage.documents[index];
+        let archived = archivedDocuments.find((item) => item.fileName === document.fileName);
+        if (!archived) {
+          const upload = await uploadFeishuDriveFile({
+            folderToken,
+            fileName: document.fileName,
+            buffer: document.buffer,
+          });
+          archived = { fileName: document.fileName, fileToken: upload.fileToken };
+          archivedDocuments.push(archived);
+          job = await documentJobStore.update(jobId, {
+            progress: 45 + Math.round(((index + 1) / meetingPackage.documents.length) * 35),
+            message: `正在归档 ${index + 1}/${meetingPackage.documents.length}：${document.fileName}`,
+            output: { ...job.output!, archivedDocuments },
+          });
+        }
+        if (!archived.recordId) {
+          const documentRecord = await createFeishuGeneratedDocument({
+            meetingId: job.input.meetingId,
+            title: document.fileName.replace(/\.docx$/i, ""),
+            documentType: document.fileName.replace(/^.*_/, "").replace(/\.docx$/i, ""),
+            fileToken: archived.fileToken,
+            folderUrl,
+            templateVersion,
+            dataHash: job.idempotencyKey,
+            jobId: job.id,
+          });
+          archived.recordId = documentRecord.recordId;
+          job = await documentJobStore.update(jobId, {
+            output: {
+              ...job.output!,
+              archivedDocuments,
+              documentRecordIds: archivedDocuments
+                .map((item) => item.recordId)
+                .filter((recordId): recordId is string => Boolean(recordId)),
+            },
+          });
+        }
+      }
+
+      let zipFileToken = job.output?.zipFileToken;
+      if (!zipFileToken) {
+        const zipUpload = await uploadFeishuDriveFile({
+          folderToken,
+          fileName: meetingPackage.fileName,
+          buffer: meetingPackage.buffer,
+        });
+        zipFileToken = zipUpload.fileToken;
+      }
+      if (job.input.meetingId) {
+        await updateFeishuMeetingArchive(job.input.meetingId, {
+          folderUrl,
+          jobId: job.id,
+        });
+      }
+
+      job = await documentJobStore.update(jobId, {
+        status: "succeeded",
+        archiveStatus: "archived",
+        progress: 100,
+        message: "文书已生成并归档到飞书",
+        completedAt: new Date().toISOString(),
+        output: {
+          ...job.output!,
+          zipFileToken,
+          archivedToFeishu: true,
+          folderToken,
+          folderUrl,
+        },
+      });
+      await bestEffortSyncDocumentJob(job);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "文书生成失败";
+      const failed = await documentJobStore.update(jobId, {
+        status: "failed",
+        archiveStatus: "failed",
+        message,
+        error: message,
+        completedAt: new Date().toISOString(),
+      });
+      await bestEffortSyncDocumentJob(failed);
+      console.error(`生成任务 ${jobId} 失败：`, error);
+    } finally {
+      activeDocumentJobs.delete(jobId);
+    }
+  }
+
+  function enqueueDocumentJob(jobId: string) {
+    documentJobQueue = documentJobQueue
+      .then(() => processDocumentJob(jobId))
+      .catch((error) => console.error(`生成任务队列异常（${jobId}）：`, error));
+  }
 
   // 配置文件上传
   const storage = multer.diskStorage({
@@ -135,6 +435,73 @@ async function startServer() {
   });
 
   // API Routes
+  const requestIsSecure = (req: express.Request) =>
+    req.secure || req.headers["x-forwarded-proto"] === "https";
+
+  app.get("/api/auth/feishu/start", (req, res) => {
+    try {
+      return res.redirect(feishuOAuthStore.authorizationUrl());
+    } catch (error) {
+      return res.status(503).json({
+        success: false,
+        error: error instanceof Error ? error.message : "飞书 OAuth 尚未配置",
+      });
+    }
+  });
+
+  app.get("/api/auth/feishu/callback", async (req, res) => {
+    const successRedirect = process.env.FEISHU_OAUTH_SUCCESS_REDIRECT?.trim() || "/";
+    if (typeof req.query.error === "string") {
+      return res.redirect(`${successRedirect}?feishu_auth=denied`);
+    }
+    try {
+      const code = typeof req.query.code === "string" ? req.query.code : "";
+      const state = typeof req.query.state === "string" ? req.query.state : "";
+      const { cookieValue } = await feishuOAuthStore.exchangeCode(code, state);
+      res.setHeader(
+        "Set-Cookie",
+        feishuOAuthStore.sessionCookie(cookieValue, requestIsSecure(req)),
+      );
+      return res.redirect(`${successRedirect}?feishu_auth=success`);
+    } catch (error) {
+      const message = encodeURIComponent(error instanceof Error ? error.message : "授权失败");
+      return res.redirect(`${successRedirect}?feishu_auth=failed&message=${message}`);
+    }
+  });
+
+  app.get("/api/auth/session", async (req, res) => {
+    const cookie = readCookie(req.headers.cookie, feishuOAuthStore.cookieName);
+    try {
+      return res.json({
+        success: true,
+        ...await feishuOAuthStore.refreshedPublicSession(cookie),
+      });
+    } catch (error) {
+      return res.status(502).json({
+        success: false,
+        authenticated: false,
+        configured: feishuOAuthStore.configured(),
+        error: error instanceof Error ? error.message : "飞书会话刷新失败",
+      });
+    }
+  });
+
+  app.post("/api/auth/logout", async (req, res) => {
+    const cookie = readCookie(req.headers.cookie, feishuOAuthStore.cookieName);
+    await feishuOAuthStore.logout(cookie);
+    res.setHeader("Set-Cookie", feishuOAuthStore.clearCookie(requestIsSecure(req)));
+    return res.json({ success: true });
+  });
+
+  app.use("/api", (req, res, next) => {
+    if (process.env.REQUIRE_FEISHU_LOGIN !== "true") return next();
+    const cookie = readCookie(req.headers.cookie, feishuOAuthStore.cookieName);
+    if (!feishuOAuthStore.publicSession(cookie).authenticated) {
+      return res.status(401).json({ success: false, error: "请先连接飞书账户" });
+    }
+    return next();
+  });
+
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
   });
@@ -157,6 +524,15 @@ async function startServer() {
         connected: false,
         error: error instanceof Error ? error.message : "飞书连接失败",
       });
+    }
+  });
+
+  app.get("/api/feishu/schema", async (_req, res) => {
+    try {
+      const report = await getFeishuSchemaReport();
+      return res.json({ success: true, ...report });
+    } catch (error) {
+      return feishuApiError(res, error);
     }
   });
 
@@ -203,6 +579,88 @@ async function startServer() {
       });
     } catch (error) {
       return feishuApiError(res, error);
+    }
+  });
+
+  app.post("/api/feishu/personnel", async (req, res) => {
+    try {
+      const result = await createFeishuPersonnel(req.body as FeishuPersonnelInput);
+      return res.status(201).json({ success: true, ...result });
+    } catch (error) {
+      return feishuApiError(res, error);
+    }
+  });
+
+  app.put("/api/feishu/personnel/:recordId", async (req, res) => {
+    try {
+      const result = await updateFeishuPersonnel(
+        req.params.recordId,
+        req.body as FeishuPersonnelInput,
+      );
+      return res.json({ success: true, ...result });
+    } catch (error) {
+      return feishuApiError(res, error);
+    }
+  });
+
+  app.delete("/api/feishu/personnel/:recordId", async (req, res) => {
+    try {
+      await deleteFeishuPersonnel(req.params.recordId);
+      return res.json({ success: true });
+    } catch (error) {
+      return feishuApiError(res, error);
+    }
+  });
+
+  app.get("/api/feishu/documents", async (req, res) => {
+    try {
+      const meetingId = typeof req.query.meetingId === "string" ? req.query.meetingId : undefined;
+      const documents = await listFeishuDocuments(meetingId);
+      return res.json({ success: true, documents, syncedAt: new Date().toISOString() });
+    } catch (error) {
+      return feishuApiError(res, error);
+    }
+  });
+
+  app.get("/api/feishu/documents/:recordId/download", async (req, res) => {
+    try {
+      const document = await getFeishuDocumentForReview(req.params.recordId);
+      if (!document.attachment) {
+        return res.status(404).json({ success: false, error: "该飞书文书没有附件" });
+      }
+      const download = await downloadFeishuBitableAttachment(document.attachment.fileToken);
+      const encodedName = encodeURIComponent(document.attachment.fileName);
+      res.setHeader("Content-Type", download.contentType);
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="document.docx"; filename*=UTF-8''${encodedName}`,
+      );
+      return res.send(download.buffer);
+    } catch (error) {
+      return feishuApiError(res, error);
+    }
+  });
+
+  app.get("/api/feishu/documents/:recordId/content", async (req, res) => {
+    let temporaryPath = "";
+    try {
+      const document = await getFeishuDocumentForReview(req.params.recordId);
+      if (document.content.trim()) {
+        return res.json({ success: true, content: document.content, title: document.title });
+      }
+      if (!document.attachment) {
+        return res.status(404).json({ success: false, error: "该飞书文书没有正文或附件" });
+      }
+      const download = await downloadFeishuBitableAttachment(document.attachment.fileToken);
+      const extension = path.extname(document.attachment.fileName).toLowerCase() || ".docx";
+      temporaryPath = join(uploadsDir, `review-source-${crypto.randomUUID()}${extension}`);
+      await fs.writeFile(temporaryPath, download.buffer);
+      const content = (await extractDocumentPlainText(temporaryPath)).trim();
+      return res.json({ success: true, content, title: document.title });
+    } catch (error) {
+      return feishuApiError(res, error);
+    } finally {
+      if (temporaryPath) await fs.unlink(temporaryPath).catch(() => {});
     }
   });
 
@@ -398,6 +856,99 @@ async function startServer() {
       return res.status(vote.action === "created" ? 201 : 200).json({ success: true, vote });
     } catch (error) {
       return feishuApiError(res, error);
+    }
+  });
+
+  async function normalizedDocumentJobInput(
+    body: unknown,
+    routeMeetingId?: string,
+  ): Promise<DocumentJobInput> {
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      throw new Error("生成任务参数格式错误");
+    }
+    const value = body as {
+      meetingId?: string;
+      meetingTitle?: string;
+      meetingType?: MeetingPackageType;
+      values?: Record<string, string | number | boolean | null>;
+    };
+    const meetingId = routeMeetingId || value.meetingId?.trim() || undefined;
+    let meetingTitle = value.meetingTitle?.trim() || "";
+    let meetingType = value.meetingType;
+
+    if (meetingId?.startsWith("rec") && (!meetingTitle || !meetingType)) {
+      const meeting = await getFeishuMeeting(meetingId);
+      meetingTitle ||= meeting.title;
+      meetingType ||= meeting.type.includes("股东")
+        ? "shareholder"
+        : meeting.type.includes("监事")
+          ? "supervisor"
+          : "board";
+    }
+    if (!meetingTitle) throw new Error("缺少会议标题");
+    if (!meetingType || !["shareholder", "board", "supervisor"].includes(meetingType)) {
+      throw new Error("会议类型必须是 shareholder、board 或 supervisor");
+    }
+    if (value.values !== undefined && (typeof value.values !== "object" || Array.isArray(value.values))) {
+      throw new Error("values 必须是占位符字段对象");
+    }
+    return { meetingId, meetingTitle, meetingType, values: value.values };
+  }
+
+  async function createDocumentJobResponse(
+    req: express.Request,
+    res: express.Response,
+    meetingId?: string,
+  ) {
+    try {
+      const input = await normalizedDocumentJobInput(req.body, meetingId);
+      const session = feishuOAuthStore.publicSession(
+        readCookie(req.headers.cookie, feishuOAuthStore.cookieName),
+      );
+      if (session.authenticated) {
+        input.requestedBy =
+          session.user.name ||
+          session.user.enName ||
+          session.user.openId ||
+          session.user.userId ||
+          "飞书用户";
+      }
+      const templateVersion = await getMeetingTemplateVersion(input.meetingType);
+      const { job, created } = await documentJobStore.createOrGet(input, templateVersion);
+      if (created) enqueueDocumentJob(job.id);
+      return res.status(created ? 202 : 200).json({ success: true, created, job });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "无法创建文书生成任务";
+      const status = /缺少|必须|格式/.test(message) ? 400 : 502;
+      return res.status(status).json({ success: false, error: message });
+    }
+  }
+
+  app.post("/api/document-jobs", (req, res) => createDocumentJobResponse(req, res));
+
+  app.post("/api/meetings/:recordId/document-jobs", (req, res) =>
+    createDocumentJobResponse(req, res, req.params.recordId),
+  );
+
+  app.get("/api/document-jobs", (req, res) => {
+    const meetingId = typeof req.query.meetingId === "string" ? req.query.meetingId : undefined;
+    return res.json({ success: true, jobs: documentJobStore.list(meetingId) });
+  });
+
+  app.get("/api/document-jobs/:jobId", (req, res) => {
+    const job = documentJobStore.get(req.params.jobId);
+    if (!job) return res.status(404).json({ success: false, error: "生成任务不存在" });
+    return res.json({ success: true, job });
+  });
+
+  app.post("/api/document-jobs/:jobId/retry", async (req, res) => {
+    try {
+      const job = await documentJobStore.retry(req.params.jobId);
+      enqueueDocumentJob(job.id);
+      return res.status(202).json({ success: true, job });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "任务重试失败";
+      return res.status(/不存在/.test(message) ? 404 : 409).json({ success: false, error: message });
     }
   });
 
@@ -917,17 +1468,23 @@ async function startServer() {
   });
 
   // 腾讯元器智能体 API 代理
+  app.get("/api/yuanqi/status", (_req, res) => {
+    const configured = Boolean(
+      process.env.YUANQI_API_KEY?.trim() &&
+      process.env.YUANQI_BOT_ID?.trim(),
+    );
+    return res.json({ success: true, configured });
+  });
+
   app.post("/api/yuanqi/openapi/v1/agent/chat/completions", async (req, res) => {
     try {
-      // 从前端传来的 Authorization 头提取 Bearer Token
-      const authHeader = req.headers.authorization || "";
-      
-      if (!authHeader.startsWith("Bearer ")) {
-        return res.status(401).json({ error: "缺少有效的 Authorization 头" });
+      const apiKey = process.env.YUANQI_API_KEY?.trim();
+      const configuredAssistantId = process.env.YUANQI_BOT_ID?.trim();
+      if (!apiKey || !configuredAssistantId) {
+        return res.status(503).json({ error: "服务端尚未配置腾讯元器凭证" });
       }
-
-      const apiKey = authHeader.replace("Bearer ", "");
-      const { assistant_id, user_id, stream, messages } = req.body;
+      const { user_id, stream, messages } = req.body;
+      const assistant_id = configuredAssistantId;
 
       if (!assistant_id || !user_id || !messages) {
         return res.status(400).json({ error: "缺少必需参数" });
@@ -1025,7 +1582,23 @@ async function startServer() {
         return res.status(400).json({ error: "请提供音频文件URL" });
       }
 
-      const result = await callTencentASR(url, null);
+      const audioResponse = await fetch(url);
+      if (!audioResponse.ok) {
+        throw new Error(`无法下载音频文件（HTTP ${audioResponse.status}）`);
+      }
+      const audioData = Buffer.from(await audioResponse.arrayBuffer());
+      const taskId = await createASRTask(audioData.toString("base64"), audioData.length);
+      let result = "";
+      for (let retry = 0; retry < 120; retry += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        const status = await queryASRTask(taskId);
+        if (status === 2) {
+          result = await getASRResult(taskId);
+          break;
+        }
+        if (status === 3) throw new Error("识别任务失败");
+      }
+      if (!result) throw new Error("识别超时，请稍后重试");
       res.json({
         success: true,
         data: result

@@ -117,6 +117,7 @@ export function getFeishuConfiguration() {
     appId: Boolean(process.env.FEISHU_APP_ID?.trim()),
     appSecret: Boolean(process.env.FEISHU_APP_SECRET?.trim()),
     baseAppToken,
+    archiveFolder: Boolean(process.env.FEISHU_ARCHIVE_FOLDER_TOKEN?.trim()),
   };
 }
 
@@ -211,6 +212,83 @@ export async function listFeishuTables() {
     throw new Error(result.msg || "无法读取飞书多维表格");
   }
   return result.data?.items || [];
+}
+
+export async function getFeishuSchemaReport() {
+  const { token, appToken } = await getBitableContext();
+  const tables = await listFeishuTables();
+  const specifications = [
+    {
+      key: "meetings",
+      envName: "FEISHU_MEETING_TABLE_ID",
+      names: ["会议表", "会议台账"],
+      requiredFields: [["主题", "会议名称"], ["会议类型"], ["会议开始时间", "时间"], ["状态"]],
+    },
+    {
+      key: "personnel",
+      envName: "FEISHU_PERSON_TABLE_ID",
+      names: ["人员表", "人员矩阵"],
+      requiredFields: [
+        ["姓名文本"],
+        ["具体职务", "角色", "职务"],
+        ["是否在任", "任职状态"],
+        ["是否股东", "股东身份"],
+        ["持股数量", "持股数", "股份数量"],
+        ["持股比例"],
+      ],
+    },
+    {
+      key: "proposals",
+      envName: "FEISHU_PROPOSAL_TABLE_ID",
+      names: ["议案表", "议案库"],
+      requiredFields: [["议案标题", "议案名称"], ["议案正文", "议案内容"], ["关联会议"]],
+    },
+    {
+      key: "documents",
+      envName: "FEISHU_DOCUMENT_TABLE_ID",
+      names: ["文书表"],
+      requiredFields: [["文书名称", "文件名称", "标题"], ["关联会议"], ["文书附件", "附件", "文件"]],
+    },
+    {
+      key: "documentJobs",
+      envName: "FEISHU_DOCUMENT_JOB_TABLE_ID",
+      names: ["文书生成任务表", "生成任务表"],
+      requiredFields: [["任务ID", "任务名称"], ["任务键", "幂等键"], ["状态", "生成状态"], ["关联会议", "会议"]],
+    },
+  ];
+
+  const report = [];
+  for (const specification of specifications) {
+    const configuredId = process.env[specification.envName]?.trim();
+    const table = configuredId
+      ? tables.find((item) => item.table_id === configuredId)
+      : tables.find((item) => specification.names.includes(item.name.trim()));
+    if (!table) {
+      report.push({
+        key: specification.key,
+        tableName: specification.names[0],
+        tableId: configuredId,
+        found: false,
+        missingFields: specification.requiredFields.map((group) => group[0]),
+      });
+      continue;
+    }
+    const fields = await getTableFieldNames(token, appToken, table.table_id);
+    report.push({
+      key: specification.key,
+      tableName: table.name,
+      tableId: table.table_id,
+      found: true,
+      missingFields: specification.requiredFields
+        .filter((alternatives) => !alternatives.some((name) => fields.has(name)))
+        .map((alternatives) => alternatives[0]),
+    });
+  }
+  return {
+    appToken,
+    compatible: report.every((item) => item.found && item.missingFields.length === 0),
+    tables: report,
+  };
 }
 
 async function getBitableContext() {
@@ -406,6 +484,9 @@ export type FeishuPersonnel = {
   termStart: string;
   termEnd: string;
   isIndependent: boolean;
+  isShareholder: boolean;
+  shares?: number;
+  shareholding?: number;
 };
 
 async function personnelDirectory(token: string, appToken: string) {
@@ -453,6 +534,17 @@ export async function listFeishuPersonnel() {
       (role.includes("董事") ? "董事会" : role.includes("监事") ? "监事会" : role.includes("股东") ? "股东" : "管理层");
     const independent = readableValue(record.fields["独立性"]).includes("独立") &&
       !readableValue(record.fields["独立性"]).includes("非独立");
+    const shareholderText = readableValue(
+      record.fields["是否股东"] ?? record.fields["股东身份"],
+    );
+    const isShareholder = ["是", "股东", "true", "1"].includes(shareholderText.toLowerCase()) ||
+      organization === "股东" || role.includes("股东");
+    const numberValue = (value: unknown) => {
+      const normalized = readableValue(value).replace(/[,，%股\s]/g, "");
+      if (!normalized) return undefined;
+      const parsed = Number(normalized);
+      return Number.isFinite(parsed) ? parsed : undefined;
+    };
     return [{
       id: record.record_id,
       name,
@@ -463,9 +555,112 @@ export async function listFeishuPersonnel() {
       email: readableValue(record.fields["邮箱"]),
       termStart: dateValue(record.fields["任职开始日期"]) || dateValue(record.fields["任期起止"]),
       termEnd: dateValue(record.fields["任职结束日期"]),
-      isIndependent: independent,
+      isIndependent: role.includes("董事") ? independent : false,
+      isShareholder,
+      shares: isShareholder
+        ? numberValue(record.fields["持股数量"] ?? record.fields["持股数"] ?? record.fields["股份数量"])
+        : undefined,
+      shareholding: isShareholder ? numberValue(record.fields["持股比例"]) : undefined,
     }];
   });
+}
+
+export type FeishuPersonnelInput = {
+  name: string;
+  role?: string;
+  organization?: string;
+  status?: string;
+  phone?: string;
+  email?: string;
+  termStart?: string;
+  termEnd?: string;
+  isIndependent?: boolean;
+  isShareholder?: boolean;
+  shares?: number;
+  shareholding?: number;
+};
+
+function personnelWriteFields(
+  input: FeishuPersonnelInput,
+  available: Set<string>,
+) {
+  const fields: Record<string, unknown> = {};
+  const nameField = available.has("姓名文本") ? "姓名文本" : undefined;
+  if (!nameField) {
+    throw new Error("人员表必须增加“姓名文本”字段，不能把外部人员写入飞书用户字段“姓名”");
+  }
+  fields[nameField] = input.name.trim();
+  putAvailable(fields, available, ["具体职务", "角色", "职务"], input.role || "无");
+  putAvailable(fields, available, ["所属机构", "组织"], input.organization || "无");
+  putAvailable(fields, available, ["是否在任", "任职状态"], input.status || "在任");
+  if (input.phone !== undefined) putAvailable(fields, available, ["联系方式", "联系电话"], input.phone);
+  if (input.email !== undefined) putAvailable(fields, available, ["邮箱"], input.email);
+  if (input.termStart) {
+    putAvailable(fields, available, ["任职开始日期", "任期开始日"], new Date(`${input.termStart}T00:00:00+08:00`).getTime());
+  }
+  if (input.termEnd) {
+    putAvailable(fields, available, ["任职结束日期", "任期结束日"], new Date(`${input.termEnd}T00:00:00+08:00`).getTime());
+  }
+  if (input.isIndependent !== undefined) {
+    putAvailable(fields, available, ["独立性"], input.isIndependent ? "独立" : "非独立");
+  }
+  if (input.isShareholder !== undefined) {
+    if (input.isShareholder) {
+      const missing = [
+        ["是否股东", "股东身份"],
+        ["持股数量", "持股数", "股份数量"],
+        ["持股比例"],
+      ].filter((names) => !names.some((name) => available.has(name))).map((names) => names[0]);
+      if (missing.length) {
+        throw new Error(`人员表缺少股东字段：${missing.join("、")}；请先在飞书人员表中增加后再保存`);
+      }
+    }
+    if (available.has("是否股东")) {
+      fields["是否股东"] = input.isShareholder;
+    } else {
+      putAvailable(fields, available, ["股东身份"], input.isShareholder ? "是" : "否");
+    }
+    putAvailable(fields, available, ["持股数量", "持股数", "股份数量"], input.isShareholder ? input.shares ?? 0 : 0);
+    putAvailable(fields, available, ["持股比例"], input.isShareholder ? input.shareholding ?? 0 : 0);
+  }
+  return fields;
+}
+
+export async function createFeishuPersonnel(input: FeishuPersonnelInput) {
+  if (!input.name?.trim()) throw new Error("人员姓名不能为空");
+  const { token, appToken } = await getBitableContext();
+  const tableId = await resolveTableId(token, appToken, "FEISHU_PERSON_TABLE_ID", ["人员表", "人员矩阵"]);
+  const fields = personnelWriteFields(input, await getTableFieldNames(token, appToken, tableId));
+  const result = await feishuRequest<FeishuRecordResponse>(
+    `/bitable/v1/apps/${encodeURIComponent(appToken)}/tables/${encodeURIComponent(tableId)}/records`,
+    token,
+    { method: "POST", body: JSON.stringify({ fields }) },
+  );
+  if (!result.data?.record) throw new Error("飞书没有返回新建人员记录");
+  return { recordId: result.data.record.record_id };
+}
+
+export async function updateFeishuPersonnel(recordId: string, input: FeishuPersonnelInput) {
+  if (!recordId || !input.name?.trim()) throw new Error("人员记录和姓名不能为空");
+  const { token, appToken } = await getBitableContext();
+  const tableId = await resolveTableId(token, appToken, "FEISHU_PERSON_TABLE_ID", ["人员表", "人员矩阵"]);
+  const fields = personnelWriteFields(input, await getTableFieldNames(token, appToken, tableId));
+  await feishuRequest<FeishuRecordResponse>(
+    `/bitable/v1/apps/${encodeURIComponent(appToken)}/tables/${encodeURIComponent(tableId)}/records/${encodeURIComponent(recordId)}`,
+    token,
+    { method: "PUT", body: JSON.stringify({ fields }) },
+  );
+  return { recordId };
+}
+
+export async function deleteFeishuPersonnel(recordId: string) {
+  const { token, appToken } = await getBitableContext();
+  const tableId = await resolveTableId(token, appToken, "FEISHU_PERSON_TABLE_ID", ["人员表", "人员矩阵"]);
+  await feishuRequest<Record<string, never>>(
+    `/bitable/v1/apps/${encodeURIComponent(appToken)}/tables/${encodeURIComponent(tableId)}/records/${encodeURIComponent(recordId)}`,
+    token,
+    { method: "DELETE" },
+  );
 }
 
 function normalizeMeeting(
@@ -1041,6 +1236,19 @@ export type FeishuReviewDocument = {
   fields: Record<string, unknown>;
 };
 
+export type FeishuDocumentSummary = {
+  recordId: string;
+  title: string;
+  documentType: string;
+  meetingId: string;
+  status: string;
+  createdAt: string;
+  attachment?: {
+    fileToken: string;
+    fileName: string;
+  };
+};
+
 function collectAttachments(value: unknown): Array<{ fileToken: string; fileName: string }> {
   if (!value) return [];
   if (Array.isArray(value)) return value.flatMap(collectAttachments);
@@ -1060,6 +1268,37 @@ function collectAttachments(value: unknown): Array<{ fileToken: string; fileName
         : "飞书文书.docx";
   const own = fileToken ? [{ fileToken, fileName }] : [];
   return own.concat(Object.values(object).flatMap(collectAttachments));
+}
+
+export async function listFeishuDocuments(meetingId?: string): Promise<FeishuDocumentSummary[]> {
+  const { token, appToken } = await getBitableContext();
+  const tableId = await resolveTableId(
+    token,
+    appToken,
+    "FEISHU_DOCUMENT_TABLE_ID",
+    ["文书表"],
+  );
+  const records = await listRecordsByTableId(token, appToken, tableId);
+  return records
+    .filter((record) => {
+      if (!meetingId) return true;
+      return relationRecordIds(record.fields["关联会议"] || record.fields["会议"]).includes(meetingId);
+    })
+    .map((record) => {
+      const attachment = Object.values(record.fields).flatMap(collectAttachments)[0];
+      return {
+        recordId: record.record_id,
+        title:
+          firstReadableField(record.fields, ["文书名称", "文件名称", "标题", "名称"]) ||
+          attachment?.fileName ||
+          "飞书文书",
+        documentType: firstReadableField(record.fields, ["文书类型", "文件类型"]) || "其他文书",
+        meetingId: relationRecordIds(record.fields["关联会议"] || record.fields["会议"])[0] || "",
+        status: firstReadableField(record.fields, ["审核状态", "生成状态", "状态"]) || "已生成",
+        createdAt: dateValue(record.created_time || record.fields["生成时间"]),
+        attachment,
+      };
+    });
 }
 
 export async function getFeishuDocumentForReview(
@@ -1296,5 +1535,252 @@ export async function submitFeishuVote(input: FeishuVoteInput) {
     recordId: result.data.record.record_id,
     action: existing ? "updated" as const : "created" as const,
     pendingFields: [...new Set(pendingFields)],
+  };
+}
+
+type FeishuFolderResponse = {
+  data?: { token?: string };
+};
+
+type FeishuFileUploadResponse = {
+  code?: number;
+  msg?: string;
+  data?: { file_token?: string };
+};
+
+function archiveFolderUrl(folderToken: string) {
+  const configuredDomain = process.env.FEISHU_TENANT_DOMAIN?.trim()
+    .replace(/^https?:\/\//, "")
+    .replace(/\/+$/, "");
+  const domain = configuredDomain || "www.feishu.cn";
+  return `https://${domain}/drive/folder/${encodeURIComponent(folderToken)}`;
+}
+
+export function isFeishuArchiveConfigured() {
+  return Boolean(process.env.FEISHU_ARCHIVE_FOLDER_TOKEN?.trim());
+}
+
+export async function createFeishuArchiveFolder(name: string) {
+  const parentFolderToken = process.env.FEISHU_ARCHIVE_FOLDER_TOKEN?.trim();
+  if (!parentFolderToken) throw new Error("尚未配置 FEISHU_ARCHIVE_FOLDER_TOKEN");
+  const token = await getTenantAccessToken();
+  const result = await feishuRequest<FeishuFolderResponse>(
+    "/drive/v1/files/create_folder",
+    token,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        name: name.slice(0, 100),
+        folder_token: parentFolderToken,
+      }),
+    },
+  );
+  const folderToken = result.data?.token;
+  if (!folderToken) throw new Error("飞书没有返回新建文件夹 token");
+  return { folderToken, folderUrl: archiveFolderUrl(folderToken) };
+}
+
+export async function uploadFeishuDriveFile(input: {
+  folderToken: string;
+  fileName: string;
+  buffer: Buffer;
+}) {
+  if (!input.buffer.length) throw new Error(`${input.fileName} 是空文件，无法上传飞书`);
+  if (input.buffer.length > 20 * 1024 * 1024) {
+    throw new Error(`${input.fileName} 超过飞书普通上传 20MB 限制`);
+  }
+
+  const token = await getTenantAccessToken();
+  const form = new FormData();
+  form.set("file_name", input.fileName.slice(0, 250));
+  form.set("parent_type", "explorer");
+  form.set("parent_node", input.folderToken);
+  form.set("size", String(input.buffer.length));
+  form.set(
+    "file",
+    new Blob([input.buffer], {
+      type: input.fileName.toLowerCase().endsWith(".docx")
+        ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        : "application/zip",
+    }),
+    input.fileName,
+  );
+
+  const response = await fetch(`${FEISHU_API_BASE}/drive/v1/files/upload_all`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  const result = (await response.json()) as FeishuFileUploadResponse;
+  if (!response.ok || result.code !== 0 || !result.data?.file_token) {
+    const code = typeof result.code === "number" ? `（飞书错误码 ${result.code}）` : "";
+    throw new Error(`${result.msg || `飞书文件上传失败，HTTP ${response.status}`}${code}`);
+  }
+  return { fileToken: result.data.file_token };
+}
+
+async function optionalTableId(
+  token: string,
+  appToken: string,
+  envName: string,
+  acceptedNames: string[],
+) {
+  const configured = process.env[envName]?.trim();
+  if (configured) return configured;
+  const { result, ok } = await feishuGet<FeishuTableListResponse>(
+    `/bitable/v1/apps/${encodeURIComponent(appToken)}/tables?page_size=100`,
+    token,
+  );
+  if (!ok || result.code !== 0) throw new Error(result.msg || "无法读取飞书数据表");
+  return (result.data?.items || [])
+    .find((item) => acceptedNames.includes(item.name.trim()))
+    ?.table_id;
+}
+
+function putAvailable(
+  fields: Record<string, unknown>,
+  available: Set<string>,
+  names: string[],
+  value: unknown,
+) {
+  const name = names.find((candidate) => available.has(candidate));
+  if (name) fields[name] = value;
+}
+
+export async function createFeishuGeneratedDocument(input: {
+  meetingId?: string;
+  title: string;
+  documentType: string;
+  fileToken: string;
+  folderUrl: string;
+  templateVersion: string;
+  dataHash: string;
+  jobId: string;
+}) {
+  const { token, appToken } = await getBitableContext();
+  const tableId = await resolveTableId(
+    token,
+    appToken,
+    "FEISHU_DOCUMENT_TABLE_ID",
+    ["文书表"],
+  );
+  const available = await getTableFieldNames(token, appToken, tableId);
+  const fields: Record<string, unknown> = {};
+
+  putAvailable(fields, available, ["文书名称", "文件名称", "标题", "名称"], input.title);
+  // 当前 Base 已内置“其他文书”选项；实际类型写入备注，避免单选字段
+  // 尚未配置所有模板选项时导致整批归档失败。
+  putAvailable(fields, available, ["文书类型", "文件类型"], "其他文书");
+  putAvailable(fields, available, ["生成备注", "备注"], `实际文书类型：${input.documentType}`);
+  if (input.meetingId) {
+    putAvailable(fields, available, ["关联会议", "会议"], [input.meetingId]);
+  }
+  putAvailable(fields, available, ["文书附件", "附件", "文书文件", "文件", "Word文件"], [
+    { file_token: input.fileToken },
+  ]);
+  putAvailable(fields, available, ["会议文件夹", "文件夹链接", "归档链接"], {
+    link: input.folderUrl,
+    text: "打开会议归档文件夹",
+  });
+  putAvailable(fields, available, ["模板版本"], input.templateVersion);
+  putAvailable(fields, available, ["数据快照哈希", "数据哈希"], input.dataHash);
+  putAvailable(fields, available, ["生成任务ID", "任务ID"], input.jobId);
+  putAvailable(fields, available, ["生成状态"], "已生成");
+  putAvailable(fields, available, ["生成时间"], Date.now());
+
+  if (!Object.keys(fields).length) {
+    throw new Error("文书表中没有可写入的文书字段");
+  }
+  const result = await feishuRequest<FeishuRecordResponse>(
+    `/bitable/v1/apps/${encodeURIComponent(appToken)}/tables/${encodeURIComponent(tableId)}/records`,
+    token,
+    { method: "POST", body: JSON.stringify({ fields }) },
+  );
+  const recordId = result.data?.record?.record_id;
+  if (!recordId) throw new Error("飞书没有返回新建文书记录 ID");
+  return { recordId };
+}
+
+export async function updateFeishuMeetingArchive(
+  meetingId: string,
+  input: { folderUrl: string; jobId: string },
+) {
+  const { token, appToken } = await getBitableContext();
+  const tableId = await resolveTableId(
+    token,
+    appToken,
+    "FEISHU_MEETING_TABLE_ID",
+    ["会议表", "会议台账"],
+  );
+  const available = await getTableFieldNames(token, appToken, tableId);
+  const fields: Record<string, unknown> = {};
+  putAvailable(fields, available, ["会议文件夹", "文件夹链接", "归档链接"], {
+    link: input.folderUrl,
+    text: "打开会议归档文件夹",
+  });
+  putAvailable(fields, available, ["文书生成任务ID", "生成任务ID"], input.jobId);
+  putAvailable(fields, available, ["文书生成状态", "生成状态"], "已生成");
+  if (!Object.keys(fields).length) return { updatedFields: [] };
+
+  await feishuRequest<FeishuRecordResponse>(
+    `/bitable/v1/apps/${encodeURIComponent(appToken)}/tables/${encodeURIComponent(tableId)}/records/${encodeURIComponent(meetingId)}`,
+    token,
+    { method: "PUT", body: JSON.stringify({ fields }) },
+  );
+  return { updatedFields: Object.keys(fields) };
+}
+
+export async function syncFeishuDocumentJob(input: {
+  recordId?: string;
+  jobId: string;
+  idempotencyKey: string;
+  meetingId?: string;
+  status: string;
+  progress: number;
+  attempt: number;
+  message: string;
+  error?: string;
+  folderUrl?: string;
+  requestedBy?: string;
+}) {
+  const { token, appToken } = await getBitableContext();
+  const tableId = await optionalTableId(
+    token,
+    appToken,
+    "FEISHU_DOCUMENT_JOB_TABLE_ID",
+    ["文书生成任务表", "生成任务表"],
+  );
+  if (!tableId) return { recordId: undefined, configured: false };
+  const available = await getTableFieldNames(token, appToken, tableId);
+  const fields: Record<string, unknown> = {};
+  putAvailable(fields, available, ["任务ID", "任务名称"], input.jobId);
+  putAvailable(fields, available, ["任务键", "幂等键"], input.idempotencyKey);
+  if (input.meetingId) putAvailable(fields, available, ["关联会议", "会议"], [input.meetingId]);
+  putAvailable(fields, available, ["状态", "生成状态"], input.status);
+  putAvailable(fields, available, ["进度"], input.progress);
+  putAvailable(fields, available, ["重试次数", "尝试次数"], input.attempt);
+  putAvailable(fields, available, ["任务消息", "备注"], input.message);
+  if (input.requestedBy) putAvailable(fields, available, ["操作者", "生成者"], input.requestedBy);
+  if (input.error) putAvailable(fields, available, ["错误信息", "失败原因"], input.error);
+  if (input.folderUrl) {
+    putAvailable(fields, available, ["文件夹链接", "归档链接"], {
+      link: input.folderUrl,
+      text: "打开会议归档文件夹",
+    });
+  }
+  putAvailable(fields, available, ["更新时间"], Date.now());
+  if (!Object.keys(fields).length) return { recordId: input.recordId, configured: true };
+
+  const path = input.recordId
+    ? `/bitable/v1/apps/${encodeURIComponent(appToken)}/tables/${encodeURIComponent(tableId)}/records/${encodeURIComponent(input.recordId)}`
+    : `/bitable/v1/apps/${encodeURIComponent(appToken)}/tables/${encodeURIComponent(tableId)}/records`;
+  const result = await feishuRequest<FeishuRecordResponse>(
+    path,
+    token,
+    { method: input.recordId ? "PUT" : "POST", body: JSON.stringify({ fields }) },
+  );
+  return {
+    recordId: input.recordId || result.data?.record?.record_id,
+    configured: true,
   };
 }

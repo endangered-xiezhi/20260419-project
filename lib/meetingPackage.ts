@@ -1,6 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import JSZip from "jszip";
+import crypto from "crypto";
 
 export type MeetingPackageType = "shareholder" | "board" | "supervisor";
 
@@ -13,6 +14,24 @@ export type MeetingPackageInput = {
     title: string;
     content?: string;
   }>;
+  participants?: Array<{
+    name: string;
+    role?: string;
+    attended?: string;
+    conflictOfInterest?: string;
+  }>;
+  shareholders?: Array<{
+    name: string;
+    type?: string;
+    shares?: string | number;
+    shareholding?: string | number;
+    representative?: string;
+  }>;
+};
+
+export type RenderedMeetingDocument = {
+  fileName: string;
+  buffer: Buffer;
 };
 
 const TEMPLATE_FOLDERS: Record<MeetingPackageType, string> = {
@@ -26,6 +45,28 @@ const EXPECTED_FILE_COUNTS: Record<MeetingPackageType, number> = {
   board: 6,
   supervisor: 6,
 };
+
+function templateFolderFor(meetingType: MeetingPackageType) {
+  return path.join(
+    process.cwd(),
+    "artifacts",
+    "三会Word模板",
+    TEMPLATE_FOLDERS[meetingType],
+  );
+}
+
+export async function getMeetingTemplateVersion(meetingType: MeetingPackageType) {
+  const templateFolder = templateFolderFor(meetingType);
+  const names = (await fs.readdir(templateFolder))
+    .filter((name) => name.toLowerCase().endsWith(".docx"))
+    .sort((left, right) => left.localeCompare(right, "zh-CN"));
+  const hash = crypto.createHash("sha256");
+  for (const name of names) {
+    hash.update(name);
+    hash.update(await fs.readFile(path.join(templateFolder, name)));
+  }
+  return hash.digest("hex");
+}
 
 function safeFileName(value: string) {
   const cleaned = value
@@ -115,10 +156,50 @@ function replaceProposalLoops(
   });
 }
 
+function replaceListLoop<T>(
+  xml: string,
+  loopName: string,
+  items: T[],
+  valuesFor: (item: T, index: number) => Record<string, string>,
+) {
+  const escapedName = loopName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const loopPattern = new RegExp(
+    `<w:p\\b(?:(?!<\\/w:p>)[\\s\\S])*?\\{\\{#${escapedName}\\}\\}(?:(?!<\\/w:p>)[\\s\\S])*?<\\/w:p>([\\s\\S]*?)<w:p\\b(?:(?!<\\/w:p>)[\\s\\S])*?\\{\\{\\/${escapedName}\\}\\}(?:(?!<\\/w:p>)[\\s\\S])*?<\\/w:p>`,
+    "g",
+  );
+  return xml.replace(loopPattern, (_match, body: string) => {
+    if (!items.length) return "";
+    const tableMatch = body.match(/<w:tbl>[\s\S]*?<\/w:tbl>/);
+    if (tableMatch) {
+      const rows = tableMatch[0].match(/<w:tr\b[\s\S]*?<\/w:tr>/g) || [];
+      if (rows.length >= 2) {
+        const dataRows = rows.slice(1);
+        const repeatedRows = items.map((item, index) => {
+          let row = dataRows[0];
+          for (const [token, value] of Object.entries(valuesFor(item, index))) {
+            row = row.split(token).join(escapeXml(value));
+          }
+          return row;
+        }).join("");
+        return body.replace(tableMatch[0], tableMatch[0].replace(dataRows.join(""), repeatedRows));
+      }
+    }
+    return items.map((item, index) => {
+      let rendered = body;
+      for (const [token, value] of Object.entries(valuesFor(item, index))) {
+        rendered = rendered.split(token).join(escapeXml(value));
+      }
+      return rendered;
+    }).join("");
+  });
+}
+
 async function renderDocxTemplate(
   template: Buffer,
   values: Record<string, string>,
   proposals: NonNullable<MeetingPackageInput["proposals"]>,
+  participants: NonNullable<MeetingPackageInput["participants"]>,
+  shareholders: NonNullable<MeetingPackageInput["shareholders"]>,
 ) {
   const docxZip = await JSZip.loadAsync(template);
   const xmlFiles = Object.keys(docxZip.files).filter(
@@ -131,7 +212,29 @@ async function renderDocxTemplate(
       if (!entry) return;
       const xml = await entry.async("string");
       const expanded = replaceProposalLoops(xml, proposals);
-      docxZip.file(name, replaceRunPlaceholders(expanded, values));
+      const withParticipants = replaceListLoop(expanded, "参会人员列表", participants, (person, index) => ({
+        "{{序号}}": String(index + 1),
+        "{{人员表.姓名文本}}": person.name,
+        "{{人员表.角色}}": person.role || "",
+        "{{人员表.是否出席}}": person.attended || "",
+        "{{人员表.回避事项}}": person.conflictOfInterest || "",
+      }));
+      const withShareholders = replaceListLoop(withParticipants, "出席股东列表", shareholders, (shareholder, index) => ({
+        "{{序号}}": String(index + 1),
+        "{{股东表.股东名称}}": shareholder.name,
+        "{{股东表.股东类型}}": shareholder.type || "",
+        "{{股东表.持股数量}}": String(shareholder.shares ?? ""),
+        "{{股东表.持股比例}}": shareholder.shareholding === undefined || shareholder.shareholding === ""
+          ? ""
+          : `${shareholder.shareholding}${String(shareholder.shareholding).includes("%") ? "" : "%"}`,
+        "{{股东表.授权代表}}": shareholder.representative || "",
+      }));
+      const signers = participants.length ? participants : shareholders.map((shareholder) => ({ name: shareholder.name }));
+      const withSigners = replaceListLoop(withShareholders, "签署人列表", signers, (person, index) => ({
+        "{{序号}}": String(index + 1),
+        "{{人员表.姓名文本}}": person.name,
+      }));
+      docxZip.file(name, replaceRunPlaceholders(withSigners, values));
     }),
   );
 
@@ -143,12 +246,7 @@ async function renderDocxTemplate(
 }
 
 export async function createMeetingPackage(input: MeetingPackageInput) {
-  const templateFolder = path.join(
-    process.cwd(),
-    "artifacts",
-    "三会Word模板",
-    TEMPLATE_FOLDERS[input.meetingType],
-  );
+  const templateFolder = templateFolderFor(input.meetingType);
   const entries = await fs.readdir(templateFolder, { withFileTypes: true });
   const templateNames = entries
     .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".docx"))
@@ -163,16 +261,21 @@ export async function createMeetingPackage(input: MeetingPackageInput) {
 
   const values = normalizedValues(input);
   const proposals = input.proposals || [];
+  const participants = input.participants || [];
+  const shareholders = input.shareholders || [];
   const folderName = safeFileName(input.meetingTitle);
   const packageZip = new JSZip();
   const meetingFolder = packageZip.folder(folderName);
   if (!meetingFolder) throw new Error("无法创建会议档案目录");
+  const documents: RenderedMeetingDocument[] = [];
 
   for (const templateName of templateNames) {
     const source = await fs.readFile(path.join(templateFolder, templateName));
-    const rendered = await renderDocxTemplate(source, values, proposals);
+    const rendered = await renderDocxTemplate(source, values, proposals, participants, shareholders);
     const cleanTemplateName = templateName.replace(/^\d+-/, "");
-    meetingFolder.file(`${folderName}_${cleanTemplateName}`, rendered);
+    const fileName = `${folderName}_${cleanTemplateName}`;
+    documents.push({ fileName, buffer: rendered });
+    meetingFolder.file(fileName, rendered);
   }
 
   const buffer = await packageZip.generateAsync({
@@ -186,5 +289,6 @@ export async function createMeetingPackage(input: MeetingPackageInput) {
     fileCount: templateNames.length,
     fileName: `${folderName}_会议档案.zip`,
     documentNames: templateNames.map((name) => name.replace(/^\d+-/, "")),
+    documents,
   };
 }

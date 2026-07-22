@@ -13,6 +13,20 @@ export default defineConfig(({mode}) => {
     // GitHub Pages uses a project subpath; full-stack hosts can override it with VITE_BASE_PATH=/.
     base: env.VITE_BASE_PATH || (mode === 'production' ? '/20260419-project/' : '/'),
     plugins: [react(), tailwindcss()],
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return undefined;
+            if (id.includes('/react/') || id.includes('/react-dom/')) return 'react-vendor';
+            if (id.includes('/docx/') || id.includes('/jszip/')) return 'document-vendor';
+            if (id.includes('/lucide-react/')) return 'icons-vendor';
+            if (id.includes('/framer-motion/') || id.includes('/motion/')) return 'motion-vendor';
+            return 'vendor';
+          },
+        },
+      },
+    },
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
     },

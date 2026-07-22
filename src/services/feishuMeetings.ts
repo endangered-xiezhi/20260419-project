@@ -133,6 +133,9 @@ export async function listPersonnelFromFeishu() {
       termStart: string;
       termEnd: string;
       isIndependent: boolean;
+      isShareholder: boolean;
+      shares?: number;
+      shareholding?: number;
     }>;
     syncedAt: string;
   }>("/api/feishu/personnel").then((result) => ({
@@ -144,6 +147,61 @@ export async function listPersonnelFromFeishu() {
       status: person.status === "离任" ? "离职" : "在职",
     } satisfies Personnel)),
   }));
+}
+
+export type PersonnelWriteInput = {
+  name: string;
+  role?: string;
+  organization?: string;
+  status?: string;
+  phone?: string;
+  email?: string;
+  termStart?: string;
+  termEnd?: string;
+  isIndependent?: boolean;
+  isShareholder?: boolean;
+  shares?: number;
+  shareholding?: number;
+};
+
+export function createPersonnelInFeishu(input: PersonnelWriteInput) {
+  return apiRequest<{ success: true; recordId: string }>("/api/feishu/personnel", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updatePersonnelInFeishu(recordId: string, input: PersonnelWriteInput) {
+  return apiRequest<{ success: true; recordId: string }>(
+    `/api/feishu/personnel/${encodeURIComponent(recordId)}`,
+    { method: "PUT", body: JSON.stringify(input) },
+  );
+}
+
+export function deletePersonnelFromFeishu(recordId: string) {
+  return apiRequest<{ success: true }>(
+    `/api/feishu/personnel/${encodeURIComponent(recordId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export type ApiDocumentSummary = {
+  recordId: string;
+  title: string;
+  documentType: string;
+  meetingId: string;
+  status: string;
+  createdAt: string;
+  attachment?: { fileToken: string; fileName: string };
+};
+
+export async function listDocumentsFromFeishu(meetingId?: string) {
+  const query = meetingId ? `?meetingId=${encodeURIComponent(meetingId)}` : "";
+  return apiRequest<{
+    success: true;
+    documents: ApiDocumentSummary[];
+    syncedAt: string;
+  }>(`/api/feishu/documents${query}`);
 }
 
 export async function getMeetingFromFeishu(id: string) {

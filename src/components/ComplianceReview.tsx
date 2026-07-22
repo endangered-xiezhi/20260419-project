@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { ShieldCheck, Upload, FileText, Brain, AlertTriangle, CheckCircle2, X, Loader2, Clock, ChevronDown, ChevronRight, Maximize2, Minimize2 } from "lucide-react";
 import { ComplianceIssue } from "../types";
 import { cn } from "@/lib/utils";
+import { listDocumentsFromFeishu } from "@/services/feishuMeetings";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface ReviewRecord {
@@ -70,30 +71,7 @@ const ResizeHandle: React.FC<ResizeHandleProps> = ({ onMouseDown, direction }) =
 };
 
 export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, onGenerateDocuments, onReviewComplete }) => {
-  const [records, setRecords] = useState<ReviewRecord[]>(() => {
-    const saved = localStorage.getItem("corporate_compliance_records");
-    if (!saved) return [];
-    try {
-      const parsed = JSON.parse(saved) as ReviewRecord[];
-      return parsed.map((record) => {
-        const isLegacyDemo =
-          record.aiThinking?.includes("2026年3月20日") ||
-          record.aiResponse?.includes("间隔仅为11天");
-        if (!isLegacyDemo) return record;
-        return {
-          ...record,
-          status: "pending" as const,
-          aiThinking: undefined,
-          aiResponse: undefined,
-          riskAlerts: undefined,
-          reviewConclusion: undefined,
-          complianceScore: undefined,
-        };
-      });
-    } catch {
-      return [];
-    }
-  });
+  const [records, setRecords] = useState<ReviewRecord[]>([]);
   const [activeRecord, setActiveRecord] = useState<ReviewRecord | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -104,7 +82,13 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
   const fileInputRef = useRef<HTMLInputElement>(null);
   // 从文书中心选择文件弹窗
   const [showDocCenterSelect, setShowDocCenterSelect] = useState(false);
-  const [docCenterDocs, setDocCenterDocs] = useState<{id: string; name: string; meetingTitle: string; content?: string}[]>([]);
+  const [docCenterDocs, setDocCenterDocs] = useState<{
+    id: string;
+    name: string;
+    meetingTitle: string;
+    content?: string;
+    feishuRecordId?: string;
+  }[]>([]);
   
   // 面板宽度状态 (百分比)
   const [leftPanelWidth, setLeftPanelWidth] = useState(() => {
@@ -129,10 +113,6 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
   useEffect(() => {
     localStorage.setItem("compliance_content_width", contentPanelWidth.toString());
   }, [contentPanelWidth]);
-
-  useEffect(() => {
-    localStorage.setItem("corporate_compliance_records", JSON.stringify(records));
-  }, [records]);
 
   // 处理拖动
   const handleResizeStart = useCallback((panel: 'left' | 'content', e: React.MouseEvent) => {
@@ -178,25 +158,46 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
   }, [leftPanelWidth, contentPanelWidth]);
 
   // 从文书中心加载文档
-  const loadDocsFromDocCenter = () => {
-    const savedDocs = localStorage.getItem("corporate_generated_docs");
-    if (savedDocs) {
-      const docs = JSON.parse(savedDocs);
-      setDocCenterDocs(docs.map((d: any) => ({
-        id: d.id,
-        name: d.name,
-        meetingTitle: d.meetingTitle,
-        content: d.content
+  const loadDocsFromDocCenter = async () => {
+    try {
+      const { documents } = await listDocumentsFromFeishu(meetingId || undefined);
+      setDocCenterDocs(documents.map((document) => ({
+        id: `feishu-${document.recordId}`,
+        name: document.title,
+        meetingTitle: meetingId || "飞书会议",
+        feishuRecordId: document.recordId,
       })));
-    } else {
+    } catch (error) {
       setDocCenterDocs([]);
+      setUploadError(error instanceof Error ? error.message : "飞书文书读取失败");
     }
     setShowDocCenterSelect(true);
   };
 
   // 选择文书中心的文档进行审查
-  const selectDocFromCenter = (doc: {id: string; name: string; meetingTitle: string; content?: string}) => {
-    if (!doc.content) {
+  const selectDocFromCenter = async (doc: {
+    id: string;
+    name: string;
+    meetingTitle: string;
+    content?: string;
+    feishuRecordId?: string;
+  }) => {
+    let content = doc.content || "";
+    if (!content && doc.feishuRecordId) {
+      try {
+        const response = await fetch(
+          `/api/feishu/documents/${encodeURIComponent(doc.feishuRecordId)}/content`,
+        );
+        const result = await response.json();
+        if (!response.ok || !result.success) throw new Error(result.error || "文书正文读取失败");
+        content = result.content;
+      } catch (error) {
+        setUploadError(error instanceof Error ? error.message : "该文档没有可审查的内容");
+        setShowDocCenterSelect(false);
+        return;
+      }
+    }
+    if (!content) {
       setUploadError("该文档没有可审查的内容");
       setShowDocCenterSelect(false);
       return;
@@ -208,12 +209,11 @@ export const ComplianceReview: React.FC<ComplianceReviewProps> = ({ meetingId, o
       fileType: doc.meetingTitle,
       uploadTime: new Date().toISOString(),
       status: 'pending',
-      content: doc.content,
+      content,
     };
     
     setRecords(prev => {
       const updated = [newRecord, ...prev];
-      localStorage.setItem("corporate_compliance_records", JSON.stringify(updated));
       return updated;
     });
     setActiveRecord(newRecord);
