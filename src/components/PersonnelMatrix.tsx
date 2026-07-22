@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Users, UserPlus, Search, Trash2, Edit3, ShieldCheck, ShieldAlert, Calendar, Save, X, Filter, Building2, Briefcase, AlertTriangle, GitBranch, Percent, User } from "lucide-react";
 import { Personnel } from "../types";
 import { cn } from "@/lib/utils";
+import { loadStoredPersonnel, saveStoredPersonnel } from "@/utils/personnelStorage";
 import {
   createPersonnelInFeishu,
   deletePersonnelFromFeishu,
@@ -37,7 +38,7 @@ const initialPersonnel: Personnel[] = [
 ];
 
 export const PersonnelMatrix: React.FC = () => {
-  const [personnel, setPersonnel] = useState<Personnel[]>([]);
+  const [personnel, setPersonnel] = useState<Personnel[]>(() => loadStoredPersonnel(initialPersonnel));
   const [syncError, setSyncError] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [filterOrg, setFilterOrg] = useState<string>("全部");
@@ -48,7 +49,10 @@ export const PersonnelMatrix: React.FC = () => {
   const refreshPersonnel = async () => {
     try {
       const { personnel: records } = await listPersonnelFromFeishu();
-      setPersonnel(records);
+      if (records.length) {
+        setPersonnel(records);
+        saveStoredPersonnel(records);
+      }
       setSyncError("");
     } catch (error) {
       setSyncError(error instanceof Error ? error.message : "飞书人员读取失败");
@@ -58,6 +62,10 @@ export const PersonnelMatrix: React.FC = () => {
   useEffect(() => {
     void refreshPersonnel();
   }, []);
+
+  useEffect(() => {
+    if (personnel.length) saveStoredPersonnel(personnel);
+  }, [personnel]);
 
   const filteredPersonnel = personnel
     .filter(p => 
@@ -102,8 +110,30 @@ export const PersonnelMatrix: React.FC = () => {
       shares: currentPerson.isShareholder ? currentPerson.shares : undefined,
       shareholding: currentPerson.isShareholder ? currentPerson.shareholding : undefined,
     };
+    const localPerson: Personnel = {
+      id: currentPerson.id || `local-${Date.now()}`,
+      name: input.name,
+      role: (input.role || "无") as Personnel["role"],
+      organization: input.organization as Personnel["organization"],
+      status: currentPerson.status || "在职",
+      phone: input.phone,
+      email: input.email,
+      termStart: input.termStart,
+      termEnd: input.termEnd,
+      isIndependent: input.isIndependent,
+      isShareholder: input.isShareholder,
+      shares: input.shares,
+      shareholding: input.shareholding,
+      conflictOfInterest: currentPerson.conflictOfInterest || [],
+      sortOrder: currentPerson.sortOrder,
+    };
+    const localRecords = currentPerson.id
+      ? personnel.map((person) => person.id === currentPerson.id ? localPerson : person)
+      : [localPerson, ...personnel];
+    setPersonnel(localRecords);
+    saveStoredPersonnel(localRecords);
     try {
-      if (currentPerson.id) {
+      if (currentPerson.id?.startsWith("rec")) {
         await updatePersonnelInFeishu(currentPerson.id, input);
       } else {
         await createPersonnelInFeishu(input);
@@ -112,7 +142,10 @@ export const PersonnelMatrix: React.FC = () => {
       setIsEditing(false);
       setCurrentPerson({});
     } catch (error) {
-      setSyncError(error instanceof Error ? error.message : "人员保存失败");
+      setIsEditing(false);
+      setCurrentPerson({});
+      const message = error instanceof Error ? error.message : "人员保存失败";
+      setSyncError(`人员已保存在本机，但飞书同步失败：${message}`);
     }
   };
 
@@ -122,12 +155,18 @@ export const PersonnelMatrix: React.FC = () => {
 
   const confirmDelete = async () => {
     if (deleteConfirmId) {
+      const localRecords = personnel.filter((person) => person.id !== deleteConfirmId);
+      setPersonnel(localRecords);
+      saveStoredPersonnel(localRecords);
       try {
-        await deletePersonnelFromFeishu(deleteConfirmId);
-        await refreshPersonnel();
+        if (deleteConfirmId.startsWith("rec")) {
+          await deletePersonnelFromFeishu(deleteConfirmId);
+        }
         setDeleteConfirmId(null);
       } catch (error) {
-        setSyncError(error instanceof Error ? error.message : "人员删除失败");
+        setDeleteConfirmId(null);
+        const message = error instanceof Error ? error.message : "人员删除失败";
+        setSyncError(`本机记录已删除，但飞书同步失败：${message}`);
       }
     }
   };

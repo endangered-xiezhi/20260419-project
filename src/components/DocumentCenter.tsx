@@ -23,6 +23,7 @@ import {
   type ApiMeeting,
 } from "@/services/feishuMeetings";
 import type { Personnel } from "../types";
+import { loadStoredPersonnel, saveStoredPersonnel } from "@/utils/personnelStorage";
 import { fallbackCompanyName, normalizeCompanyName } from "@/utils/companyName";
 import {
   createVotingDocument,
@@ -1494,7 +1495,7 @@ const DocumentFormModal: React.FC<{
     }
   });
 
-  const [personnel, setPersonnel] = useState<Personnel[]>([]);
+  const [personnel, setPersonnel] = useState<Personnel[]>(() => loadStoredPersonnel());
   const availableAttendees = personnel.map(({ name, phone = '', email = '' }) => ({ name, phone, email }));
   const [votingContext, setVotingContext] = useState<VotingContext | null>(null);
   const [availableMeetings, setAvailableMeetings] = useState<ApiMeeting[]>([]);
@@ -1513,9 +1514,12 @@ const DocumentFormModal: React.FC<{
       meetingId?.startsWith('rec') ? getMeetingFromFeishu(meetingId) : Promise.resolve(null),
     ]).then(([personnelResult, meetingResult]) => {
       if (!active) return;
-      const records = personnelResult.personnel;
+      const records = personnelResult.personnel.length
+        ? personnelResult.personnel
+        : loadStoredPersonnel();
       const meeting = meetingResult?.meeting || null;
       setPersonnel(records);
+      if (personnelResult.personnel.length) saveStoredPersonnel(records);
       const selectedNames = new Set(meeting?.participantNames || []);
       const selected = selectedNames.size ? records.filter((person) => selectedNames.has(person.name)) : records;
       const shareholders = selected.filter((person) => person.isShareholder);

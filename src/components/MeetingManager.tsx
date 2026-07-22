@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { Plus, Filter, Calendar as CalendarIcon, MoreHorizontal, ChevronRight, ChevronLeft, List, X, Edit2, Users, Save, Mail, Send, Pencil, Check, Trash2, History } from "lucide-react";
 import { Meeting, MeetingType, Personnel } from "../types";
 import { cn } from "@/lib/utils";
+import { loadStoredPersonnel, saveStoredPersonnel } from "@/utils/personnelStorage";
 import {
   createMeetingInFeishu,
   deleteMeetingFromFeishu,
@@ -330,7 +331,7 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
   };
 
   // 获取与会人员列表（排序：董监高在前，单一身份股东按持股比例在后）
-  const [personnelList, setPersonnelList] = useState<Personnel[]>([]);
+  const [personnelList, setPersonnelList] = useState<Personnel[]>(() => loadStoredPersonnel());
 
   useEffect(() => {
     let active = true;
@@ -342,6 +343,7 @@ export const MeetingManager: React.FC<MeetingManagerProps> = ({ onStartMeeting, 
           return priority || a.name.localeCompare(b.name, "zh-CN");
         });
         setPersonnelList(sorted);
+        saveStoredPersonnel(sorted);
       })
       .catch(() => {
         // 飞书人员接口尚未部署或暂时不可用时，继续使用本地缓存。
